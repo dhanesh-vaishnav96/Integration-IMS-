@@ -4,15 +4,16 @@
  * Version 1 API router — mounts all domain route groups under /api/v1.
  */
 const express = require('express');
-const healthRoutes      = require('../healthRoutes');
-const candidateRoutes   = require('../candidateRoutes');
-const interviewRoutes   = require('../interviewRoutes');
-const msGraphRoutes     = require('../msGraphRoutes');
-const teamsRoutes       = require('../teamsRoutes');
-const webhookRoutes     = require('../webhookRoutes');
-const subscriptionRoutes = require('../subscriptionRoutes');
-const dashboardRoutes   = require('../dashboardRoutes');
-const schedulingRoutes  = require('../schedulingRoutes');
+const healthRoutes        = require('../healthRoutes');
+const candidateRoutes     = require('../candidateRoutes');
+const interviewRoutes     = require('../interviewRoutes');
+const msGraphRoutes       = require('../msGraphRoutes');
+const teamsRoutes         = require('../teamsRoutes');
+const webhookRoutes       = require('../webhookRoutes');
+const subscriptionRoutes  = require('../subscriptionRoutes');
+const dashboardRoutes     = require('../dashboardRoutes');
+const schedulingRoutes    = require('../schedulingRoutes');
+const verificationRoutes  = require('../verificationRoutes');  // Phase 1 verification
 const { protect, authorize } = require('../../middlewares/authMiddleware');
 
 const router = express.Router();
@@ -27,7 +28,7 @@ router.use('/interviews',    interviewRoutes);
 // Microsoft Graph Auth
 router.use('/ms', msGraphRoutes);
 
-// Teams Scheduling (auth-gated)
+// Teams Scheduling (auth-gated — DEV_BYPASS_AUTH=true allows bypassing in dev)
 router.use('/teams', protect, authorize('admin', 'hr'), teamsRoutes);
 
 // Webhooks & Subscriptions
@@ -39,5 +40,8 @@ router.use('/dashboard', dashboardRoutes);
 
 // Interview Scheduling Module — Teams Calendar Parity
 router.use('/scheduling', schedulingRoutes);
+
+// Phase 1 Verification & Diagnostics (dev only — returns 403 in production)
+router.use('/verify', verificationRoutes);
 
 module.exports = router;

@@ -60,40 +60,65 @@ const applicationAuthService = {
     // Return cached token if still valid
     if (!tokenCache.isExpired(APP_TOKEN_CACHE_KEY)) {
       const cached = tokenCache.get(APP_TOKEN_CACHE_KEY);
-      logger.debug('[AppAuth] Using cached application token.');
+      const expiresIn = cached.expiresAt
+        ? Math.round((new Date(cached.expiresAt) - Date.now()) / 1000)
+        : 'unknown';
+      logger.debug(`[AppAuth] Using cached application token. Expires in: ${expiresIn}s`);
       return cached.accessToken;
     }
 
-    logger.info('[AppAuth] Fetching new application token via Client Credentials...');
+    logger.info('[AppAuth] Cache miss — fetching new application token via Client Credentials flow...');
+    logger.debug(`[AppAuth] Config | tenantId: ${msalConfig.auth.authority} | clientId: ${msalConfig.auth.clientId ? msalConfig.auth.clientId.substring(0,8) + '...' : 'MISSING'}`);
+
     const client = getMsalClient();
+    const start  = Date.now();
 
     try {
-      const tokenRequest = {
-        scopes: APPLICATION_SCOPES,
-      };
+      const tokenRequest = { scopes: APPLICATION_SCOPES };
+      logger.debug(`[AppAuth] Requesting scopes: ${APPLICATION_SCOPES.join(', ')}`);
 
       const response = await client.acquireTokenByClientCredential(tokenRequest);
 
       if (!response || !response.accessToken) {
+        logger.error('[AppAuth] ❌ Token acquisition returned empty response — check Azure App Registration.');
         throw new AppError(
           'Application token acquisition failed: no access token returned.',
           HTTP_STATUS.INTERNAL_SERVER
         );
       }
 
-      // Cache the token
+      const durationMs = Date.now() - start;
       tokenCache.set(APP_TOKEN_CACHE_KEY, {
         accessToken: response.accessToken,
-        expiresAt: response.expiresOn,
-        scope: APPLICATION_SCOPES.join(' '),
+        expiresAt:   response.expiresOn,
+        scope:       APPLICATION_SCOPES.join(' '),
       });
 
       logger.info(
-        `[AppAuth] Token acquired. Expires: ${response.expiresOn?.toISOString()}`
+        `[AppAuth] ✅ Application token acquired in ${durationMs}ms | ` +
+        `expires: ${response.expiresOn?.toISOString()} | ` +
+        `scopes: ${APPLICATION_SCOPES.join(', ')}`
       );
       return response.accessToken;
     } catch (err) {
-      logger.error(`[AppAuth] Token acquisition error: ${err.message}`);
+      const durationMs = Date.now() - start;
+      const graphCode  = err.errorCode || err.error || 'UNKNOWN';
+      logger.error(
+        `[AppAuth] ❌ Token acquisition FAILED after ${durationMs}ms | ` +
+        `errorCode: ${graphCode} | message: ${err.message}`
+      );
+
+      // Emit specific fix hints for common AADSTS error codes
+      if (err.message?.includes('AADSTS700016')) {
+        logger.error('[AppAuth] FIX: AZURE_CLIENT_ID is invalid — verify App Registration in Azure Portal.');
+      } else if (err.message?.includes('AADSTS7000215')) {
+        logger.error('[AppAuth] FIX: AZURE_CLIENT_SECRET is invalid or expired — regenerate in Azure Portal.');
+      } else if (err.message?.includes('AADSTS90002')) {
+        logger.error('[AppAuth] FIX: AZURE_TENANT_ID is incorrect — copy from Entra ID → Overview page.');
+      } else if (err.message?.includes('AADSTS65001')) {
+        logger.error('[AppAuth] FIX: Admin consent not granted — Azure Portal → App Registration → API Permissions → Grant admin consent.');
+      }
+
       throw applicationAuthService._mapMsalError(err);
     }
   },

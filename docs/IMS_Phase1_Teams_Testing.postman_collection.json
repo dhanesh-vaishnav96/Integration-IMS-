@@ -1,0 +1,421 @@
+{
+  "info": {
+    "name": "IMS Phase 1 — Teams Integration Testing",
+    "description": "Complete Postman collection for Phase 1 Teams scheduling + calendar blocking verification.\n\nFlow Order:\n1. Pre-flight → 2. Create Candidate → 3. Create Interview → 4. Schedule Teams Meeting\n\nBase URL variable: {{base_url}} = http://localhost:5000/api/v1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "ims-phase1"
+  },
+  "variable": [
+    { "key": "base_url",      "value": "http://localhost:5000/api/v1",   "type": "string" },
+    { "key": "candidate_id",  "value": "",  "type": "string", "description": "Set after Step 2" },
+    { "key": "interview_id",  "value": "",  "type": "string", "description": "Set after Step 3" },
+    { "key": "meeting_id",    "value": "",  "type": "string", "description": "Set after Step 4" }
+  ],
+  "item": [
+
+    {
+      "name": "🔍 STEP 0 — Pre-flight Verification",
+      "item": [
+        {
+          "name": "0a. Full Flow Status Check",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/verify/flow-status",
+            "description": "START HERE. Checks all config, DB connection, and Graph token in one call.\nAll items should show ✅ OK before proceeding."
+          }
+        },
+        {
+          "name": "0b. Graph Token Test",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/verify/graph-token",
+            "description": "Validates AZURE_CLIENT_ID + AZURE_CLIENT_SECRET + AZURE_TENANT_ID.\nMust return 200 with tokenPreview before any Teams operations."
+          }
+        },
+        {
+          "name": "0c. Graph Connection Test",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/verify/graph-connection",
+            "description": "Token + live Graph API call. Should return org details in application mode."
+          }
+        },
+        {
+          "name": "0d. Teams Meeting Dry-Run",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/verify/teams-meeting",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dry_run\": true,\n  \"organizer_user_id\": \"REPLACE_WITH_AAD_OBJECT_ID\"\n}"
+            },
+            "description": "Dry-run: validates payload without calling Graph. Safe to run any time."
+          }
+        },
+        {
+          "name": "0e. Teams Meeting Real Test (creates a meeting)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/verify/teams-meeting",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dry_run\": false,\n  \"organizer_user_id\": \"REPLACE_WITH_AAD_OBJECT_ID\",\n  \"subject\": \"[TEST] Verify Teams Meeting Creation\"\n}"
+            },
+            "description": "Creates a real Teams meeting. Check joinUrl in response. Delete test meeting from Teams after."
+          }
+        },
+        {
+          "name": "0f. Calendar Block Test (single panelist)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/verify/calendar-block",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"panelist_email\": \"panelist@yourorg.com\",\n  \"dry_run\": false\n}"
+            },
+            "description": "Tests Calendars.ReadWrite permission. Replace email with real tenant user."
+          }
+        },
+        {
+          "name": "0g. Health Check",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/health",
+            "description": "DB health. Should show PostgreSQL (RDS) = connected."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "👤 STEP 1 — Create Candidate",
+      "item": [
+        {
+          "name": "1a. Create Candidate (Happy Path)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const r = pm.response.json();",
+                  "if (r.success && r.data?.id) {",
+                  "  pm.collectionVariables.set('candidate_id', r.data.id);",
+                  "  console.log('✅ candidate_id set:', r.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/candidates",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Priya Sharma\",\n  \"email\": \"priya.sharma.test@example.com\",\n  \"phone\": \"+91-9876543210\",\n  \"job_role\": \"Senior Software Engineer\",\n  \"years_of_experience\": 5,\n  \"skills\": [\"Java\", \"Spring Boot\", \"PostgreSQL\", \"Microservices\"]\n}"
+            },
+            "description": "Creates a candidate. candidate_id is auto-saved to collection variable."
+          }
+        },
+        {
+          "name": "1b. Create Candidate — Duplicate Email (expect 409)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/candidates",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Priya Sharma Duplicate\",\n  \"email\": \"priya.sharma.test@example.com\",\n  \"job_role\": \"Junior Developer\",\n  \"years_of_experience\": 1\n}"
+            },
+            "description": "Should return 409 Conflict — email already exists."
+          }
+        },
+        {
+          "name": "1c. Create Candidate — Invalid Email (expect 400)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/candidates",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bad Email Test\",\n  \"email\": \"not-a-valid-email\",\n  \"job_role\": \"QA Engineer\",\n  \"years_of_experience\": 2\n}"
+            },
+            "description": "Should return 400 Validation Error — invalid email format."
+          }
+        },
+        {
+          "name": "1d. Get Candidate by ID",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/candidates/{{candidate_id}}",
+            "description": "Verify candidate was created correctly."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📅 STEP 2 — Create Interview",
+      "item": [
+        {
+          "name": "2a. Create Interview (Happy Path)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const r = pm.response.json();",
+                  "if (r.success && r.data?.id) {",
+                  "  pm.collectionVariables.set('interview_id', r.data.id);",
+                  "  console.log('✅ interview_id set:', r.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/interviews",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"candidate_id\": \"{{candidate_id}}\",\n  \"organizer_email\": \"hr@yourorg.com\",\n  \"interviewer_email\": \"interviewer@yourorg.com\",\n  \"scheduled_time\": \"2026-06-20T10:00:00.000Z\",\n  \"duration_minutes\": 60,\n  \"meeting_provider\": \"TEAMS\"\n}"
+            },
+            "description": "Creates interview record in RDS. interview_id auto-saved to collection variable."
+          }
+        },
+        {
+          "name": "2b. Create Interview — Non-existent Candidate (expect 404)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/interviews",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"candidate_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"organizer_email\": \"hr@yourorg.com\",\n  \"interviewer_email\": \"interviewer@yourorg.com\",\n  \"scheduled_time\": \"2026-06-20T10:00:00.000Z\",\n  \"duration_minutes\": 60\n}"
+            },
+            "description": "Should return 404 — candidate not found."
+          }
+        },
+        {
+          "name": "2c. Get Interview by ID",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/interviews/{{interview_id}}",
+            "description": "Verify interview created. teams_meeting_id should be null at this point."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🟣 STEP 3 — Schedule Teams Meeting",
+      "item": [
+        {
+          "name": "3a. Schedule — No Panelists (Happy Path)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const r = pm.response.json();",
+                  "if (r.success && r.data?.teams?.id) {",
+                  "  pm.collectionVariables.set('meeting_id', r.data.teams.id);",
+                  "  console.log('✅ Teams meeting created:', r.data.teams.joinUrl);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/teams/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interview_id\": \"{{interview_id}}\",\n  \"organizer_user_id\": \"REPLACE_WITH_ORGANIZER_AAD_OBJECT_ID\",\n  \"panelists\": []\n}"
+            },
+            "description": "Schedule Teams meeting with no panelists. Calendar blocking step is skipped.\nReplace organizer_user_id with the AAD Object ID from Azure Portal."
+          }
+        },
+        {
+          "name": "3b. Schedule — With Multiple Panelists",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/teams/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interview_id\": \"{{interview_id}}\",\n  \"organizer_user_id\": \"REPLACE_WITH_ORGANIZER_AAD_OBJECT_ID\",\n  \"panelists\": [\n    \"panelist1@yourorg.com\",\n    \"panelist2@yourorg.com\"\n  ]\n}"
+            },
+            "description": "Schedules Teams meeting AND blocks both panelists' Outlook calendars.\nExpect calendarBlocking array with success/failure per panelist."
+          }
+        },
+        {
+          "name": "3c. Schedule — Duplicate (expect 409)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/teams/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interview_id\": \"{{interview_id}}\",\n  \"organizer_user_id\": \"REPLACE_WITH_ORGANIZER_AAD_OBJECT_ID\"\n}"
+            },
+            "description": "Second schedule on same interview. Should return 409 Conflict — meeting already exists."
+          }
+        },
+        {
+          "name": "3d. Schedule — Invalid Email Panelist (expect 400 validation)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/teams/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interview_id\": \"{{interview_id}}\",\n  \"organizer_user_id\": \"REPLACE\",\n  \"panelists\": [\"not-a-valid-email\", \"also-bad\"]\n}"
+            },
+            "description": "Should fail validator with 400 — each panelist must be valid email."
+          }
+        },
+        {
+          "name": "3e. Schedule — External Panelist Email (graceful failure)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/teams/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interview_id\": \"{{interview_id}}\",\n  \"organizer_user_id\": \"REPLACE_WITH_ORGANIZER_AAD_OBJECT_ID\",\n  \"panelists\": [\"external.user@gmail.com\"]\n}"
+            },
+            "description": "External email outside tenant. Teams meeting WILL be created.\ncalendarBlocking will show { success: false, error: '[HTTP 404]...' } for this panelist.\nFlow continues — interview is still scheduled."
+          }
+        },
+        {
+          "name": "3f. Schedule — Missing interview_id (expect 400)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/teams/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organizer_user_id\": \"REPLACE\"\n}"
+            },
+            "description": "Should return 400 — interview_id is required."
+          }
+        },
+        {
+          "name": "3g. Schedule — Non-existent Interview ID (expect 404)",
+          "request": {
+            "method": "POST",
+            "url":    "{{base_url}}/teams/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interview_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"organizer_user_id\": \"REPLACE\"\n}"
+            },
+            "description": "Should return 404 — interview not found."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🔎 STEP 4 — Post-Schedule Verification",
+      "item": [
+        {
+          "name": "4a. Inspect Interview (DB + Graph status)",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/verify/interview/{{interview_id}}",
+            "description": "Deep inspection: shows DB state (teams_meeting_id, meeting_join_url) + live Graph meeting status."
+          }
+        },
+        {
+          "name": "4b. Get Teams Schedule (interview + live meeting)",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/teams/{{interview_id}}",
+            "description": "Returns combined: DB interview record + live Teams meeting data from Graph API."
+          }
+        },
+        {
+          "name": "4c. Get Interview (check teams_meeting_id is saved)",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/interviews/{{interview_id}}",
+            "description": "teams_meeting_id and meeting_join_url should now be populated in DB."
+          }
+        },
+        {
+          "name": "4d. Update Teams Meeting (reschedule)",
+          "request": {
+            "method": "PUT",
+            "url":    "{{base_url}}/teams/{{interview_id}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduled_time\": \"2026-06-21T14:00:00.000Z\",\n  \"duration_minutes\": 90,\n  \"organizer_user_id\": \"REPLACE_WITH_ORGANIZER_AAD_OBJECT_ID\"\n}"
+            },
+            "description": "Updates the existing Teams meeting schedule via Graph API."
+          }
+        },
+        {
+          "name": "4e. Cancel Teams Meeting",
+          "request": {
+            "method": "DELETE",
+            "url":    "{{base_url}}/teams/{{interview_id}}",
+            "description": "Cancels the Teams meeting and marks interview as CANCELLED in DB."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "⚙️ STEP 5 — Dev Utilities",
+      "item": [
+        {
+          "name": "5a. Inspect Token Cache",
+          "request": {
+            "method": "GET",
+            "url":    "{{base_url}}/ms/auth/cache",
+            "description": "Shows cached token metadata (no actual token values). Useful to confirm token is cached."
+          }
+        },
+        {
+          "name": "5b. Clear Token Cache (force re-auth)",
+          "request": {
+            "method": "DELETE",
+            "url":    "{{base_url}}/ms/auth/cache",
+            "description": "Clears all cached tokens. Forces fresh token acquisition on next Graph call."
+          }
+        },
+        {
+          "name": "5c. List Tenant Users (find organizer AAD IDs)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw":   "{{base_url}}/ms/users?limit=20",
+              "query": [{ "key": "limit", "value": "20" }]
+            },
+            "description": "Lists users in your Azure AD tenant.\nUse this to find the AAD Object ID of the organizer/HR account to use as organizer_user_id."
+          }
+        },
+        {
+          "name": "5d. Get Specific Meeting from Graph",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/ms/meeting/REPLACE_WITH_TEAMS_MEETING_ID?organizerUserId=REPLACE_WITH_AAD_ID",
+              "query": [{ "key": "organizerUserId", "value": "REPLACE_WITH_AAD_ID" }]
+            },
+            "description": "Fetches live Teams meeting details from Graph API by meeting ID."
+          }
+        }
+      ]
+    }
+
+  ]
+}
