@@ -161,7 +161,7 @@ const Dashboard = () => {
                       </div>
 
                       {/* Assets Section */}
-                      {hasTeams && <AssetCard interviewId={interview._id || interview.id} />}
+                      <AssetCard interviewId={interview._id || interview.id} />
                     </div>
                   </div>
                 );
