@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { candidateApi } from '../services/api';
 import { Link } from 'react-router-dom';
-import { UserPlus, Search, ChevronRight, X, Briefcase, Calendar as CalendarIcon } from 'lucide-react';
+import { UserPlus, Search, ChevronRight, X, Briefcase, Calendar as CalendarIcon, Users } from 'lucide-react';
 
 const CandidateList = () => {
   const [candidates, setCandidates] = useState([]);
