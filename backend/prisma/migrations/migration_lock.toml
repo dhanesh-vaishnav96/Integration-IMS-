@@ -1,0 +1,6 @@
+-- Migration lock file — Prisma uses this to track applied migrations
+-- DO NOT EDIT MANUALLY
+
+{
+  "version": "0.3.1"
+}

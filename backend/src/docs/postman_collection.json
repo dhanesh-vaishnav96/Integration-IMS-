@@ -1,0 +1,172 @@
+{
+  "info": {
+    "name": "Interview Management System API",
+    "description": "Complete API collection for the Interview Management System backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/health",
+            "description": "Returns server status, DB connection, uptime, version."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Candidates",
+      "item": [
+        {
+          "name": "Create Candidate",
+          "request": {
+            "method": "POST",
+            "url": "{{BASE_URL}}/api/v1/candidates",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john.doe@example.com\",\n  \"phone\": \"+91-9876543210\",\n  \"job_role\": \"Senior React Developer\",\n  \"years_of_experience\": 5,\n  \"skills\": [\"React\", \"TypeScript\", \"Node.js\"],\n  \"status\": \"ACTIVE\",\n  \"createdBy\": \"admin@company.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Candidates",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/candidates?page=1&limit=10",
+            "description": "List all active candidates with pagination."
+          }
+        },
+        {
+          "name": "Search Candidates",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/candidates?search=React&page=1&limit=5",
+            "description": "Full-text search across name, email, job_role, skills."
+          }
+        },
+        {
+          "name": "Filter by Status",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/candidates?status=ACTIVE&sortBy=name&sortOrder=asc"
+          }
+        },
+        {
+          "name": "Get Candidate by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/candidates/{{candidateId}}"
+          }
+        },
+        {
+          "name": "Update Candidate",
+          "request": {
+            "method": "PUT",
+            "url": "{{BASE_URL}}/api/v1/candidates/{{candidateId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"job_role\": \"Lead React Developer\",\n  \"years_of_experience\": 6,\n  \"skills\": [\"React\", \"TypeScript\", \"Node.js\", \"AWS\"],\n  \"updatedBy\": \"admin@company.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Candidate (Soft)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{BASE_URL}}/api/v1/candidates/{{candidateId}}"
+          }
+        },
+        {
+          "name": "Get Candidate Assets",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/candidates/{{candidateId}}/assets",
+            "description": "Get all recordings and transcripts for a candidate."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Interviews",
+      "item": [
+        {
+          "name": "Create Interview",
+          "request": {
+            "method": "POST",
+            "url": "{{BASE_URL}}/api/v1/interviews",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"candidate_id\": \"{{candidateId}}\",\n  \"organizer_email\": \"hr@company.com\",\n  \"interviewer_email\": \"tech.lead@company.com\",\n  \"scheduled_time\": \"2026-07-01T10:00:00.000Z\",\n  \"duration_minutes\": 60,\n  \"meeting_provider\": \"TEAMS\",\n  \"createdBy\": \"hr@company.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Interviews",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/interviews?page=1&limit=10"
+          }
+        },
+        {
+          "name": "Filter by Status",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/interviews?status=SCHEDULED&sortBy=scheduled_time&sortOrder=asc"
+          }
+        },
+        {
+          "name": "Filter by Candidate",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/interviews?candidate_id={{candidateId}}"
+          }
+        },
+        {
+          "name": "Get Interview by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/interviews/{{interviewId}}"
+          }
+        },
+        {
+          "name": "Update Interview",
+          "request": {
+            "method": "PUT",
+            "url": "{{BASE_URL}}/api/v1/interviews/{{interviewId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"COMPLETED\",\n  \"teams_meeting_id\": \"teams-meeting-abc-123\",\n  \"meeting_join_url\": \"https://teams.microsoft.com/l/meetup-join/abc123\",\n  \"updatedBy\": \"system\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Interview (Soft)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{BASE_URL}}/api/v1/interviews/{{interviewId}}"
+          }
+        },
+        {
+          "name": "Get Interview Assets",
+          "request": {
+            "method": "GET",
+            "url": "{{BASE_URL}}/api/v1/interviews/{{interviewId}}/assets"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "BASE_URL", "value": "http://localhost:5000" },
+    { "key": "candidateId", "value": "REPLACE_WITH_ACTUAL_ID" },
+    { "key": "interviewId", "value": "REPLACE_WITH_ACTUAL_ID" }
+  ]
+}

@@ -1,0 +1,469 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A top-level tenant in the SaaS system (e.g., a hiring company)
+model Tenant {
+  id            String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name          String         @unique @db.VarChar(200)
+  domain        String         @unique @db.VarChar(255)
+  is_active     Boolean        @default(true)
+  created_at    DateTime       @default(now())
+  organizations Organization[]
+
+  @@map("tenants")
+}
+
+/// A sub-unit within a tenant (e.g., a department or business unit)
+model Organization {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(200)
+  created_at DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id], map: "org_tenant_idx")
+  @@map("organizations")
+}
+
+/// A job applicant in the system
+model Candidate {
+  id                  String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  legacy_mongo_id     String?          @unique @db.VarChar(24)
+  tenant_id           String?          @db.Uuid
+  organization_id     String?          @db.Uuid
+  name                String           @db.VarChar(150)
+  email               String           @unique @db.VarChar(255)
+  phone               String?          @db.VarChar(30)
+  job_role            String           @db.VarChar(100)
+  years_of_experience Int              @default(0)
+  resume_url          String?
+  status              CandidateStatus  @default(ACTIVE)
+  created_by          String?          @db.VarChar(255)
+  updated_by          String?          @db.VarChar(255)
+  deleted_at          DateTime?
+  created_at          DateTime         @default(now())
+  updated_at          DateTime         @updatedAt
+  skills              CandidateSkill[]
+  interviews          Interview[]
+
+  @@index([email], map: "candidate_email_idx")
+  @@index([status, deleted_at], map: "candidate_status_deleted_idx")
+  @@index([job_role, deleted_at], map: "candidate_job_role_deleted_idx")
+  @@map("candidates")
+}
+
+/// A canonical skill tag (e.g., "react", "node.js")
+model Skill {
+  id         String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String           @unique @db.VarChar(100)
+  created_at DateTime         @default(now())
+  candidates CandidateSkill[]
+
+  @@map("skills")
+}
+
+/// Junction table linking candidates to their skills
+model CandidateSkill {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  candidate_id String    @db.Uuid
+  skill_id     String    @db.Uuid
+  created_at   DateTime  @default(now())
+  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  skill        Skill     @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([candidate_id, skill_id], name: "unique_candidate_skill")
+  @@index([candidate_id], map: "candidate_skill_candidate_idx")
+  @@index([skill_id], map: "candidate_skill_skill_idx")
+  @@map("candidate_skills")
+}
+
+/// A scheduled interview session for a candidate
+model Interview {
+  id                      String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  legacy_mongo_id         String?           @unique @db.VarChar(24)
+  tenant_id               String?           @db.Uuid
+  organization_id         String?           @db.Uuid
+  candidate_id            String            @db.Uuid
+  // Teams / Calendar
+  teams_meeting_id        String?           @unique @db.VarChar(500)
+  meeting_join_url        String?
+  normalized_meeting_key  String?           @unique @db.VarChar(300)
+  meeting_provider        MeetingProvider   @default(TEAMS)
+  graph_event_id          String?           @db.VarChar(500)
+  online_meeting_id       String?           @db.VarChar(500)
+  subscription_id         String?           @db.VarChar(100)
+  webhook_status          WebhookSyncStatus @default(NONE)
+  // Scheduling fields (extended)
+  title                   String?           @db.VarChar(300)
+  type                    InterviewType     @default(TECHNICAL)
+  priority                InterviewPriority @default(MEDIUM)
+  round                   Int               @default(1)
+  department              String?           @db.VarChar(100)
+  instructions            String?           @db.Text
+  meeting_notes           String?           @db.Text
+  meeting_category        String?           @db.VarChar(100)
+  meeting_color           String?           @db.VarChar(20)
+  is_private              Boolean           @default(false)
+  free_busy_status        FreeBusyStatus    @default(BUSY)
+  travel_buffer_minutes   Int               @default(0)
+  // Scheduling times  
+  organizer_email         String            @db.VarChar(255)
+  interviewer_email       String?           @db.VarChar(255)
+  scheduled_time          DateTime
+  duration_minutes        Int               @default(60)
+  timezone_name           String            @default("UTC") @db.VarChar(100)
+  timezone_offset         Int               @default(0)
+  // Recurrence
+  recurrence_rule         String?           @db.Text
+  recurrence_end_date     DateTime?
+  parent_interview_id     String?           @db.Uuid
+  recurrence_instance_id  String?           @db.Uuid
+  series_version          Int               @default(1)
+  exception_dates         Json              @default("[]")
+  // Status & Asset tracking
+  status                  InterviewStatus   @default(SCHEDULED)
+  recording_status        AssetStatus       @default(PENDING)
+  transcript_status       AssetStatus       @default(PENDING)
+  // Audit
+  created_by              String?           @db.VarChar(255)
+  updated_by              String?           @db.VarChar(255)
+  deleted_at              DateTime?
+  created_at              DateTime          @default(now())
+  updated_at              DateTime          @updatedAt
+  // Relations
+  asset                   InterviewAsset?
+  candidate               Candidate         @relation(fields: [candidate_id], references: [id])
+  parent_interview        Interview?        @relation("RecurrenceSeries", fields: [parent_interview_id], references: [id])
+  recurrence_instances    Interview[]       @relation("RecurrenceSeries")
+  participants            InterviewParticipant[]
+  notifications           InterviewNotification[]
+
+  @@index([candidate_id, deleted_at], map: "interview_candidate_deleted_idx")
+  @@index([candidate_id, scheduled_time(sort: Desc)], map: "interview_candidate_schedule_idx")
+  @@index([status, scheduled_time(sort: Desc), deleted_at], map: "interview_status_schedule_idx")
+  @@index([normalized_meeting_key], map: "interview_meeting_key_idx")
+  @@index([scheduled_time], map: "interview_start_time_idx")
+  @@index([parent_interview_id], map: "interview_parent_idx")
+  @@index([type, deleted_at], map: "interview_type_deleted_idx")
+  @@index([department, deleted_at], map: "interview_dept_deleted_idx")
+  @@map("interviews")
+}
+
+/// Participants linked to an interview (panelists, recruiters, hiring managers)
+model InterviewParticipant {
+  id              String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  interview_id    String            @db.Uuid
+  email           String            @db.VarChar(255)
+  name            String?           @db.VarChar(150)
+  role            ParticipantRole   @default(PANELIST)
+  response_status MeetingResponse   @default(NO_RESPONSE)
+  is_required     Boolean           @default(true)
+  timezone_name   String?           @db.VarChar(100)
+  timezone_offset Int?
+  created_at      DateTime          @default(now())
+  deleted_at      DateTime?
+  created_by      String?           @db.VarChar(255)
+  updated_by      String?           @db.VarChar(255)
+  interview       Interview         @relation(fields: [interview_id], references: [id], onDelete: Cascade)
+
+  @@index([interview_id], map: "participant_interview_idx")
+  @@index([email, deleted_at], map: "participant_email_idx")
+  @@index([interview_id, email], map: "participant_interview_email_idx")
+  @@map("interview_participants")
+}
+
+/// User availability slots (working hours, busy times, OOO)
+model UserAvailability {
+  id                String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email             String           @db.VarChar(255)
+  date              DateTime         @db.Date
+  start_time        DateTime
+  end_time          DateTime
+  availability_type AvailabilityType @default(BUSY)
+  source            String           @default("MANUAL") @db.VarChar(50)
+  timezone_name     String           @default("UTC") @db.VarChar(100)
+  is_recurring      Boolean          @default(false)
+  recurrence_rule   String?          @db.Text
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+  deleted_at        DateTime?
+  created_by        String?          @db.VarChar(255)
+  updated_by        String?          @db.VarChar(255)
+
+  @@index([email, deleted_at], map: "availability_email_idx")
+  @@index([email, date], map: "availability_email_date_idx")
+  @@index([email, start_time, end_time], map: "availability_time_range_idx")
+  @@map("user_availability")
+}
+
+/// Notification delivery log per interview
+model InterviewNotification {
+  id              String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  interview_id    String             @db.Uuid
+  recipient_email String             @db.VarChar(255)
+  type            NotificationType
+  status          NotificationStatus @default(PENDING)
+  remind_at       DateTime?
+  sent_at         DateTime?
+  error_message   String?
+  payload         Json?
+  created_at      DateTime           @default(now())
+  updated_at      DateTime           @updatedAt
+  interview       Interview          @relation(fields: [interview_id], references: [id], onDelete: Cascade)
+
+  @@index([interview_id], map: "notification_interview_idx")
+  @@index([status, remind_at], map: "notification_pending_idx")
+  @@map("interview_notifications")
+}
+
+/// Recording and transcript artifacts associated with a completed interview
+model InterviewAsset {
+  id                String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  interview_id      String      @unique @db.Uuid
+  candidate_id      String      @db.Uuid
+  tenant_id         String?     @db.Uuid
+  recording_s3_key  String?
+  recording_status  AssetStatus @default(PENDING)
+  transcript_s3_key String?
+  transcript_status AssetStatus @default(PENDING)
+  logs              Json        @default("[]")
+  created_by        String?     @db.VarChar(255)
+  updated_by        String?     @db.VarChar(255)
+  deleted_at        DateTime?
+  created_at        DateTime    @default(now())
+  updated_at        DateTime    @updatedAt
+  interview         Interview   @relation(fields: [interview_id], references: [id], onDelete: Cascade)
+
+  @@index([interview_id], map: "asset_interview_idx")
+  @@index([candidate_id], map: "asset_candidate_idx")
+  @@map("interview_assets")
+}
+
+/// Tracks active Microsoft Graph webhook subscriptions
+model GraphSubscription {
+  id                   String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id            String?   @db.Uuid
+  subscription_id      String    @unique @db.VarChar(100)
+  expiration_date_time DateTime
+  client_state         String    @db.VarChar(255)
+  creator_id           String?   @db.VarChar(255)
+  notification_url     String
+  resource             String    @db.VarChar(500)
+  change_type          String    @db.VarChar(100)
+  is_active            Boolean   @default(true)
+  renewed_at           DateTime?
+  created_by           String?   @db.VarChar(255)
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  @@index([is_active, expiration_date_time], map: "subscription_active_expiry_idx")
+  @@index([subscription_id], map: "subscription_id_idx")
+  @@map("graph_subscriptions")
+}
+
+/// Persists raw Graph webhook notifications for idempotency and replay
+model WebhookEvent {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id       String?       @db.Uuid
+  change_id       String        @unique @db.VarChar(300)
+  subscription_id String        @db.VarChar(100)
+  resource        String        @db.VarChar(500)
+  change_type     String        @db.VarChar(100)
+  resource_data   Json?
+  raw_payload     Json?
+  status          WebhookStatus @default(RECEIVED)
+  error_message   String?
+  created_by      String?       @db.VarChar(255)
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+
+  @@index([change_id], map: "webhook_change_id_idx")
+  @@index([subscription_id], map: "webhook_subscription_id_idx")
+  @@index([status], map: "webhook_status_idx")
+  @@index([created_at(sort: Desc)], map: "webhook_created_at_idx")
+  @@map("webhook_events")
+}
+
+/// Reliable event delivery via outbox pattern
+model OutboxEvent {
+  id           String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  event_type   String       @db.VarChar(100)
+  payload      Json
+  status       OutboxStatus @default(PENDING)
+  retry_count  Int          @default(0)
+  error        String?
+  created_at   DateTime     @default(now())
+  processed_at DateTime?
+
+  @@index([status, created_at], map: "outbox_pending_idx")
+  @@map("outbox_events")
+}
+
+/// Immutable audit trail
+model AuditLog {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String?  @db.Uuid
+  entity     String   @db.VarChar(100)
+  entity_id  String   @db.Uuid
+  action     String   @db.VarChar(100)
+  actor      String   @db.VarChar(255)
+  payload    Json?
+  ip_address String?  @db.VarChar(45)
+  created_at DateTime @default(now())
+
+  @@index([entity, entity_id], map: "audit_entity_idx")
+  @@index([actor], map: "audit_actor_idx")
+  @@index([created_at(sort: Desc)], map: "audit_created_at_idx")
+  @@map("audit_logs")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum CandidateStatus {
+  ACTIVE
+  INACTIVE
+  HIRED
+  REJECTED
+  ON_HOLD
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
+}
+
+enum InterviewType {
+  TECHNICAL
+  HR
+  MANAGERIAL
+  BEHAVIORAL
+  CUSTOM
+}
+
+enum InterviewPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MeetingProvider {
+  TEAMS
+  ZOOM
+  GOOGLE_MEET
+  IN_PERSON
+  CUSTOM
+}
+
+enum ParticipantRole {
+  PANELIST
+  RECRUITER
+  HIRING_MANAGER
+  CANDIDATE
+  OBSERVER
+}
+
+enum MeetingResponse {
+  ACCEPTED
+  TENTATIVE
+  DECLINED
+  NO_RESPONSE
+}
+
+enum AvailabilityType {
+  FREE
+  BUSY
+  TENTATIVE
+  OUT_OF_OFFICE
+  WORKING_ELSEWHERE
+}
+
+enum FreeBusyStatus {
+  FREE
+  BUSY
+  TENTATIVE
+  OUT_OF_OFFICE
+  WORKING_ELSEWHERE
+}
+
+enum WebhookSyncStatus {
+  NONE
+  SUBSCRIBED
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+enum NotificationType {
+  EMAIL
+  BROWSER
+  TEAMS
+  SMS
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum AssetStatus {
+  PENDING
+  PROCESSING
+  UPLOADED
+  FAILED
+  UNAVAILABLE
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSING
+  QUEUED
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  FAILED
+  DEAD
+}
+
+enum DeadLetterStatus {
+  PENDING
+  RETRIED
+  RESOLVED
+  IGNORED
+}
+
+/// Stores background jobs that have exhausted all retry attempts
+model DeadLetterJob {
+  id            String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  job_name      String           @db.VarChar(200)
+  queue_name    String           @db.VarChar(200)
+  payload       Json             @default("{}")
+  error_message String?          @db.Text
+  stack_trace   String?          @db.Text
+  retry_count   Int              @default(0)
+  status        DeadLetterStatus @default(PENDING)
+  created_at    DateTime         @default(now())
+  resolved_at   DateTime?
+
+  @@index([queue_name], map: "dlq_queue_name_idx")
+  @@index([status], map: "dlq_status_idx")
+  @@index([created_at(sort: Desc)], map: "dlq_created_at_idx")
+  @@map("dead_letter_jobs")
+}
