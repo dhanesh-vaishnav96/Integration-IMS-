@@ -38,7 +38,10 @@ const app = express();
 
 // ─── Phase 1: Security & Setup Middlewares ─────────────────────────────────
 app.use(metricsMiddleware); // Observability metrics
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+}));
+app.disable('x-powered-by');
 
 // ─── Response Compression ──────────────────────────────────────────────────
 // Compresses all responses with gzip (skips tiny payloads < 1kb automatically)

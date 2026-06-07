@@ -5,7 +5,7 @@
  */
 import { useMemo } from 'react';
 import { format, isToday } from 'date-fns';
-import { EVENT_COLORS } from '../../../utils/calendarHelpers';
+import { STATUS_COLORS } from '../../../utils/calendarHelpers';
 import { Video, User, Clock, Calendar, AlertCircle, ChevronRight } from 'lucide-react';
 
 const AgendaView = ({ events, onEventClick }) => {
@@ -57,7 +57,8 @@ const AgendaView = ({ events, onEventClick }) => {
             {/* Events for this day */}
             <div className="space-y-2 ml-13">
               {dayEvts.map(event => {
-                const colors = EVENT_COLORS[event.type] || EVENT_COLORS.TECHNICAL;
+                const status = event.status || 'SCHEDULED';
+                const colors = STATUS_COLORS[status] || STATUS_COLORS.SCHEDULED;
                 const startFmt = format(new Date(event.scheduled_time), 'h:mm a');
                 const endTime  = new Date(new Date(event.scheduled_time).getTime() + (event.duration_minutes || 60) * 60000);
                 const endFmt   = format(endTime, 'h:mm a');

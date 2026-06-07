@@ -69,47 +69,39 @@ export const AssetCard = ({ interviewId }) => {
     );
   }
 
-  if (!assets) {
-    return (
-      <div className="mt-7 pt-7 border-t border-borderSoft flex items-center text-amber-600 font-medium text-sm bg-amber-50 p-4 rounded-[12px] border border-amber-200">
-        <RefreshCw className="w-4 h-4 mr-3 animate-spin" />
-        Meeting in progress or processing not started...
-      </div>
-    );
-  }
-
   return (
     <div className="mt-7 pt-7 border-t border-borderSoft">
-      <h4 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Meeting Artifacts</h4>
+      <h4 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Asset Status</h4>
       
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Recording Section */}
-        <div className="bg-slate-50 rounded-[16px] p-5 border border-slate-200 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-bold text-slate-700 flex items-center">
-              <Video className="w-4 h-4 mr-2 text-primary-500" />
-              Recording
-            </span>
-            <AssetStatusBadge status={assets.recording_status} />
-          </div>
-          <div className="flex-1">
-            <RecordingPlayer url={assets.recording_url} status={assets.recording_status} />
-          </div>
+      {/* Asset Status Panel */}
+      <div className="bg-slate-50 rounded-[12px] p-4 border border-slate-200 mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Recording Status</p>
+          <AssetStatusBadge status={assets?.recording_status} />
         </div>
+        <div>
+          <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Transcript Status</p>
+          <AssetStatusBadge status={assets?.transcript_status} />
+        </div>
+        <div>
+          <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Last Updated</p>
+          <p className="text-sm font-semibold text-slate-700">{assets?.updated_at ? new Date(assets.updated_at).toLocaleString() : 'N/A'}</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Processing Attempts</p>
+          <p className="text-sm font-semibold text-slate-700">{assets?.processing_attempts || 0}</p>
+        </div>
+      </div>
 
-        {/* Transcript Section */}
-        <div className="bg-slate-50 rounded-[16px] p-5 border border-slate-200 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-bold text-slate-700 flex items-center">
-              <FileText className="w-4 h-4 mr-2 text-primary-500" />
-              Transcript
-            </span>
-            <AssetStatusBadge status={assets.transcript_status} />
-          </div>
-          <div className="flex-1">
-            <TranscriptViewer url={assets.transcript_url} status={assets.transcript_status} />
-          </div>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <RecordingPlayer 
+          url={assets?.recording_url} 
+          status={assets?.recording_status} 
+        />
+        <TranscriptViewer 
+          url={assets?.transcript_url} 
+          status={assets?.transcript_status} 
+        />
       </div>
     </div>
   );

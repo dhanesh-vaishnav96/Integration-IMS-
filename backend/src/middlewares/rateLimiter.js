@@ -40,4 +40,40 @@ const authLimiter = rateLimit({
   statusCode: HTTP_STATUS.TOO_MANY_REQUESTS,
 });
 
-module.exports = { globalLimiter, authLimiter };
+const schedulingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many scheduling requests. Please try again later.' },
+  statusCode: HTTP_STATUS.TOO_MANY_REQUESTS,
+});
+
+const webhookLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many webhook requests.' },
+  statusCode: HTTP_STATUS.TOO_MANY_REQUESTS,
+});
+
+const candidateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 150,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many candidate requests. Please try again later.' },
+  statusCode: HTTP_STATUS.TOO_MANY_REQUESTS,
+});
+
+const teamsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many Teams requests. Please try again later.' },
+  statusCode: HTTP_STATUS.TOO_MANY_REQUESTS,
+});
+
+module.exports = { globalLimiter, authLimiter, schedulingLimiter, webhookLimiter, candidateLimiter, teamsLimiter };

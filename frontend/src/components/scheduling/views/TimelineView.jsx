@@ -7,7 +7,7 @@
 import { useMemo } from 'react';
 import { format } from 'date-fns';
 import useSchedulingStore from '../../../store/schedulingStore';
-import { EVENT_COLORS } from '../../../utils/calendarHelpers';
+import { STATUS_COLORS } from '../../../utils/calendarHelpers';
 
 const CELL_WIDTH_PX = 80; // px per hour
 const ROW_HEIGHT    = 56;
@@ -100,7 +100,8 @@ const TimelineView = ({ events, onEventClick }) => {
                   {/* Events */}
                   {pEvents.map(event => {
                     const { left, width } = eventToTimelinePos(event);
-                    const colors = EVENT_COLORS[event.type] || EVENT_COLORS.TECHNICAL;
+                  const status = event.status || 'SCHEDULED';
+                  const colors = STATUS_COLORS[status] || STATUS_COLORS.SCHEDULED;
 
                     return (
                       <div

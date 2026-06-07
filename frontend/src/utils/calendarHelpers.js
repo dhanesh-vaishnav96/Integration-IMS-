@@ -124,14 +124,15 @@ export const EVENT_COLORS = {
 
 export const MEETING_COLORS = ['#3B82F6','#10B981','#8B5CF6','#F59E0B','#EF4444','#EC4899','#06B6D4'];
 
-/** Status badge class */
 export const STATUS_COLORS = {
-  SCHEDULED:   'bg-blue-50 text-blue-700 border-blue-200',
-  IN_PROGRESS: 'bg-amber-50 text-amber-700 border-amber-200',
-  COMPLETED:   'bg-emerald-50 text-emerald-700 border-emerald-200',
-  CANCELLED:   'bg-rose-50 text-rose-700 border-rose-200',
-  NO_SHOW:     'bg-slate-50 text-slate-700 border-slate-200',
-  RESCHEDULED: 'bg-violet-50 text-violet-700 border-violet-200',
+  SCHEDULED:   { bg: 'bg-blue-50/90 border-blue-200 hover:bg-blue-100/90',   text: 'text-blue-800',   dot: 'bg-blue-600'   },
+  COMPLETED:   { bg: 'bg-green-50/90 border-green-200 hover:bg-green-100/90', text: 'text-green-800', dot: 'bg-green-600' },
+  CANCELLED:   { bg: 'bg-red-50/90 border-red-200 hover:bg-red-100/90',     text: 'text-red-800',    dot: 'bg-red-600'    },
+  PROCESSING:  { bg: 'bg-orange-50/90 border-orange-200 hover:bg-orange-100/90', text: 'text-orange-800', dot: 'bg-orange-600'},
+  FAILED:      { bg: 'bg-gray-50/90 border-gray-200 hover:bg-gray-100/90',    text: 'text-gray-800',   dot: 'bg-gray-600'   },
+  // Fallbacks for old references
+  IN_PROGRESS: { bg: 'bg-amber-50/90 border-amber-200 hover:bg-amber-100/90', text: 'text-amber-800', dot: 'bg-amber-600' },
+  NO_SHOW:     { bg: 'bg-slate-50/90 border-slate-200 hover:bg-slate-100/90', text: 'text-slate-800', dot: 'bg-slate-600' },
 };
 
 export const PRIORITY_COLORS = {

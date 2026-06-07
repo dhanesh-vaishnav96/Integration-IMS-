@@ -23,8 +23,36 @@ const config = require('./env');
 
 const { combine, timestamp, printf, colorize, uncolorize, errors } = winston.format;
 
+// ─── Log Sanitization ─────────────────────────────────────────────────────────
+const maskContent = (str) => {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL MASKED]')
+    .replace(/AKIA[0-9A-Z]{16}/g, '[AWS_KEY MASKED]')
+    .replace(/(eyJ[a-zA-Z0-9_-]{5,}\.eyJ[a-zA-Z0-9_-]{5,}\.[a-zA-Z0-9_-]{5,})/g, '[JWT MASKED]')
+    .replace(/(Signature=|X-Amz-Signature=|client_secret=)[^&\s"']+/gi, '$1[MASKED]')
+    .replace(/https:\/\/[a-zA-Z0-9.-]+\.s3\.[a-zA-Z0-9.-]+\.amazonaws\.com[^\s"']*/gi, '[PRESIGNED_URL_MASKED]')
+    .replace(/"(phone|name|address)":\s*"[^"]+"/gi, '"$1":"[PII MASKED]"');
+};
+
+const sanitizeLog = winston.format((info) => {
+  if (info.message && typeof info.message === 'string') {
+    info.message = maskContent(info.message);
+  }
+  if (info.meta && typeof info.meta === 'object') {
+    try {
+      const metaStr = maskContent(JSON.stringify(info.meta));
+      info.meta = JSON.parse(metaStr);
+    } catch (e) {
+      // Ignore if circular
+    }
+  }
+  return info;
+});
+
 // Structured JSON format for production / log aggregators (Datadog, CloudWatch)
 const structuredFormat = combine(
+  sanitizeLog(),
   errors({ stack: true }),
   timestamp({ format: 'YYYY-MM-DDTHH:mm:ss.sssZ' }),
   printf(({ level, message, timestamp, service, request_id, stack, ...meta }) => {
@@ -43,6 +71,7 @@ const structuredFormat = combine(
 
 // Human-readable format for development terminal
 const devFormat = combine(
+  sanitizeLog(),
   colorize({ all: true }),
   timestamp({ format: 'HH:mm:ss' }),
   printf(({ level, message, timestamp, request_id }) =>

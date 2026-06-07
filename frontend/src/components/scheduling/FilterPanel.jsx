@@ -6,7 +6,6 @@
 import useSchedulingStore from '../../store/schedulingStore';
 import MiniCalendar from './MiniCalendar';
 import { Search } from 'lucide-react';
-import { EVENT_COLORS } from '../../utils/calendarHelpers';
 
 const FilterPanel = () => {
   const { filterState, setFilter, clearFilters } = useSchedulingStore();

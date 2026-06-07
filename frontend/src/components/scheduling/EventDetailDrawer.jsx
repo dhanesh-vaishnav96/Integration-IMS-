@@ -9,7 +9,7 @@ import useSchedulingStore from '../../store/schedulingStore';
 import schedulingApi from '../../services/schedulingApi';
 import { X, Calendar as CalIcon, Clock, Users, Video, Edit2, Trash2, Copy, ExternalLink, MessageSquare, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
-import { STATUS_COLORS, EVENT_COLORS } from '../../utils/calendarHelpers';
+import { STATUS_COLORS } from '../../utils/calendarHelpers';
 
 const EventDetailDrawer = () => {
   const { drawerOpen, closeDrawer, getSelectedEvent, openModal, removeEvent } = useSchedulingStore();
@@ -25,7 +25,6 @@ const EventDetailDrawer = () => {
 
   if (!drawerOpen || !event) return null;
 
-  const typeColors = EVENT_COLORS[event.type] || EVENT_COLORS.TECHNICAL;
   const statusColors = STATUS_COLORS[event.status] || STATUS_COLORS.SCHEDULED;
   const startTime = new Date(event.scheduled_time);
   const endTime = new Date(startTime.getTime() + (event.duration_minutes || 60) * 60000);
@@ -71,15 +70,15 @@ const EventDetailDrawer = () => {
       `}>
         
         {/* Header Ribbon */}
-        <div className={`h-2 w-full ${typeColors.dot}`} />
+        <div className={`h-2 w-full ${statusColors.dot}`} />
         
         <div className="flex items-start justify-between p-7 pb-5">
           <div>
             <h2 className="text-[22px] font-bold text-slate-800 pr-4 tracking-tight">
-              {event.is_private ? '🔒 Private Interview' : (event.title || `${event.type} Interview`)}
+              {event.is_private ? '🔒 Private Interview' : (event.title || 'Interview')}
             </h2>
             <div className="flex items-center gap-2 mt-3">
-              <span className={`px-2.5 py-1 rounded-[6px] text-[11px] font-bold border uppercase tracking-wider ${statusColors}`}>
+              <span className={`px-2.5 py-1 rounded-[6px] text-[11px] font-bold border uppercase tracking-wider ${statusColors.bg} ${statusColors.text}`}>
                 {event.status}
               </span>
               {event.priority === 'URGENT' && (

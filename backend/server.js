@@ -24,6 +24,11 @@ const subscriptionRenewalJob = require('./src/jobs/subscriptionRenewalJob');
 // ─── Step 1: Validate Config ────────────────────────────────────────────────
 validateConfig();
 
+if (process.env.NODE_ENV === 'production' && process.env.DEV_BYPASS_AUTH === 'true') {
+  logger.error('CRITICAL: DEV_BYPASS_AUTH is set to true in production. Hard failing startup for security.');
+  process.exit(1);
+}
+
 // ─── Step 2: Connect to Database ─────────────────────────────────────────────
 connectDB();
 

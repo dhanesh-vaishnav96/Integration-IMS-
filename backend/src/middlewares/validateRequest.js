@@ -34,7 +34,7 @@ const validate = (schema, source) => (req, res, next) => {
 
     return res.status(HTTP_STATUS.BAD_REQUEST).json({
       success: false,
-      message: 'Validation failed',
+      message: 'Validation Failed',
       errors,
     });
   }

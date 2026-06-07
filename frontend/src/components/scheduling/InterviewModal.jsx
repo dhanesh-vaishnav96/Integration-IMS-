@@ -150,9 +150,22 @@ const InterviewModal = () => {
 
   const addParticipant = () => {
     if (!newParticipantEmail) return;
+    const cleanEmail = newParticipantEmail.trim().toLowerCase();
+    
+    // Check duplicates
+    if (formData.participants.some(p => p.email === cleanEmail)) {
+      alert("This participant is already added.");
+      return;
+    }
+    
+    if (formData.participants.length >= 20) {
+      alert("Maximum of 20 panelists allowed.");
+      return;
+    }
+    
     setFormData(prev => ({
       ...prev,
-      participants: [...prev.participants, { email: newParticipantEmail, role: 'PANELIST', is_required: true }]
+      participants: [...prev.participants, { email: cleanEmail, role: 'PANELIST', is_required: true }]
     }));
     setNewParticipantEmail('');
   };
@@ -229,7 +242,7 @@ const InterviewModal = () => {
                 <div>
                   <label className="block text-[13px] font-semibold text-slate-700 mb-1.5">Date</label>
                   <input 
-                    type="date" required
+                    type="date" required min={format(new Date(), "yyyy-MM-dd")}
                     className="input-field"
                     value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})}
                   />
@@ -245,7 +258,7 @@ const InterviewModal = () => {
                 <div>
                   <label className="block text-[13px] font-semibold text-slate-700 mb-1.5">Duration (min)</label>
                   <input 
-                    type="number" min="15" step="15" required
+                    type="number" min="15" max="240" step="1" required
                     className="input-field"
                     value={formData.duration_minutes} onChange={e => setFormData({...formData, duration_minutes: parseInt(e.target.value)})}
                   />

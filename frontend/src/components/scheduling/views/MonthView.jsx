@@ -6,7 +6,7 @@
  */
 import { useMemo } from 'react';
 import { format, isSameMonth, isToday } from 'date-fns';
-import { getMonthGrid, EVENT_COLORS } from '../../../utils/calendarHelpers';
+import { getMonthGrid, STATUS_COLORS } from '../../../utils/calendarHelpers';
 import useSchedulingStore from '../../../store/schedulingStore';
 
 const MAX_EVENTS_PER_CELL = 3;
@@ -69,7 +69,8 @@ const MonthView = ({ events, onEventClick, onSlotClick }) => {
               {/* Events */}
               <div className="space-y-1">
                 {dayEvts.slice(0, MAX_EVENTS_PER_CELL).map(event => {
-                  const colors = EVENT_COLORS[event.type] || EVENT_COLORS.TECHNICAL;
+                  const status = event.status || 'SCHEDULED';
+                  const colors = STATUS_COLORS[status] || STATUS_COLORS.SCHEDULED;
                   return (
                     <div
                       key={event.id || event._id}

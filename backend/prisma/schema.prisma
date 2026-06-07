@@ -42,7 +42,7 @@ model Candidate {
   job_role            String           @db.VarChar(100)
   years_of_experience Int              @default(0)
   resume_url          String?
-  status              CandidateStatus  @default(ACTIVE)
+  status              CandidateStatus  @default(APPLIED)
   created_by          String?          @db.VarChar(255)
   updated_by          String?          @db.VarChar(255)
   deleted_at          DateTime?
@@ -231,6 +231,9 @@ model InterviewAsset {
   recording_status  AssetStatus @default(PENDING)
   transcript_s3_key String?
   transcript_status AssetStatus @default(PENDING)
+  processing_attempts Int       @default(0)
+  last_error        String?     @db.Text
+  processed_at      DateTime?
   logs              Json        @default("[]")
   created_by        String?     @db.VarChar(255)
   updated_by        String?     @db.VarChar(255)
@@ -328,6 +331,10 @@ enum CandidateStatus {
   ACTIVE
   INACTIVE
   HIRED
+  APPLIED
+  SCREENING
+  INTERVIEWING
+  SELECTED
   REJECTED
   ON_HOLD
 }
@@ -422,6 +429,7 @@ enum AssetStatus {
   PROCESSING
   UPLOADED
   FAILED
+  RETRYING
   UNAVAILABLE
 }
 

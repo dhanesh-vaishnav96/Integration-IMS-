@@ -8,46 +8,90 @@
 
 const logger = require('../../config/logger');
 const { prisma } = require('../../config/prisma');
+const IQueueService = require('./IQueueService');
 
-const mockQueueService = {
-  /**
-   * Simulate enqueueing a job.
-   * Runs the processing logic in the background with a delay.
-   *
-   * @param {string} queueName - Name of the queue (e.g., 'asset_processing', 'webhook_queue')
-   * @param {string} jobName - Name of the job
-   * @param {Object} payload - Data payload for the job
-   * @param {Object} [options] - BullMQ options (ignored in mock)
-   */
-  async add(queueName, jobName, payload, options = {}) {
-    logger.info(`[MockQueue] 📥 Enqueued job '${jobName}' to queue '${queueName}'`);
+class MockQueueService extends IQueueService {
+  constructor() {
+    super();
+    this.jobs = new Map(); // In-memory job state for mock tracking
+  }
 
-    // Simulate asynchronous background processing
+  async enqueue(queueName, jobName, payload, options = {}) {
+    const jobId = `mock-job-${Date.now()}`;
+    logger.info(`[MockQueue] 📥 Enqueued job '${jobName}' to queue '${queueName}' (ID: ${jobId})`);
+    
+    this.jobs.set(jobId, { status: 'PENDING', queueName, jobName, payload, options, attempts: 0 });
+
+    // Simulate delay
+    const delay = options.delay || 2000;
     setTimeout(async () => {
-      try {
-        await this._processMockJob(queueName, jobName, payload);
-      } catch (err) {
-        logger.error(`[MockQueue] ❌ Job failed: ${jobName} - ${err.message}`);
+      await this.process(queueName, jobName, payload, jobId);
+    }, delay);
+
+    return { id: jobId };
+  }
+
+  // Backwards compatibility alias for webhookController
+  async add(queueName, jobName, payload, options = {}) {
+    return this.enqueue(queueName, jobName, payload, options);
+  }
+
+  async process(queueName, jobName, payload, jobId = null) {
+    if (jobId && this.jobs.has(jobId)) {
+      const job = this.jobs.get(jobId);
+      job.status = 'PROCESSING';
+      job.attempts += 1;
+      this.jobs.set(jobId, job);
+    }
+    
+    try {
+      await this._processMockJob(queueName, jobName, payload);
+      if (jobId && this.jobs.has(jobId)) {
+        const job = this.jobs.get(jobId);
+        job.status = 'UPLOADED'; // Or COMPLETED depending on queue
+        this.jobs.set(jobId, job);
       }
-    }, 2000); // 2-second delay to simulate processing
+    } catch (err) {
+      if (jobId && this.jobs.has(jobId)) {
+        await this.markFailed(queueName, jobId, err);
+      }
+      logger.error(`[MockQueue] ❌ Job failed: ${jobName} - ${err.message}`);
+    }
+  }
 
-    return { id: `mock-job-${Date.now()}` };
-  },
+  async retry(queueName, jobId) {
+    if (!this.jobs.has(jobId)) throw new Error('Job not found');
+    const job = this.jobs.get(jobId);
+    
+    job.status = 'RETRYING';
+    logger.info(`[MockQueue] 🔄 Retrying job ${jobId} in queue ${queueName}`);
+    
+    setTimeout(async () => {
+      await this.process(job.queueName, job.jobName, job.payload, jobId);
+    }, 1000);
+  }
 
-  /**
-   * Internal job processor router
-   */
+  async getStatus(queueName, jobId) {
+    if (!this.jobs.has(jobId)) return 'UNKNOWN';
+    return this.jobs.get(jobId).status;
+  }
+
+  async markFailed(queueName, jobId, error) {
+    if (this.jobs.has(jobId)) {
+      const job = this.jobs.get(jobId);
+      job.status = 'FAILED';
+      job.lastError = error.message;
+      this.jobs.set(jobId, job);
+    }
+  }
+
   async _processMockJob(queueName, jobName, payload) {
     logger.info(`[MockQueue] ⚙️ Processing job: ${jobName}`);
 
     if (queueName === 'asset_processing' || jobName === 'process_meeting_assets') {
       const { interviewId, candidateId } = payload;
-      
-      if (!interviewId) {
-        throw new Error('Missing interviewId in payload');
-      }
+      if (!interviewId) throw new Error('Missing interviewId in payload');
 
-      // Upsert mock asset record in the DB to UPLOADED state
       const mockAsset = {
         candidate_id: candidateId,
         recording_s3_key: `recordings/${candidateId}/${interviewId}/mock-recording.mp4`,
@@ -60,13 +104,10 @@ const mockQueueService = {
       await prisma.interviewAsset.upsert({
         where: { interview_id: interviewId },
         update: mockAsset,
-        create: {
-          interview_id: interviewId,
-          ...mockAsset
-        }
+        create: { interview_id: interviewId, ...mockAsset }
       });
-
       logger.info(`[MockQueue] ✅ Processed assets for interview: ${interviewId}`);
+      
     } else if (queueName === 'webhook_queue') {
       logger.info(`[MockQueue] ✅ Processed webhook payload for change type: ${payload.changeType}`);
       const interviewId = payload.resourceData?.meetingId || 'mock-interview-123';
@@ -86,16 +127,13 @@ const mockQueueService = {
       await prisma.interviewAsset.upsert({
         where: { interview_id: interviewId },
         update: mockAsset,
-        create: {
-          interview_id: interviewId,
-          ...mockAsset
-        }
+        create: { interview_id: interviewId, ...mockAsset }
       });
       logger.info(`[MockQueue] ✅ Created mock assets for interview from webhook: ${interviewId}`);
     } else {
       logger.warn(`[MockQueue] ⚠️ Unhandled queue or job: ${queueName} / ${jobName}`);
     }
   }
-};
+}
 
-module.exports = mockQueueService;
+module.exports = new MockQueueService();

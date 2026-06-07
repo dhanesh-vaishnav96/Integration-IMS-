@@ -6,19 +6,20 @@
  */
 import { useRef } from 'react';
 import { format } from 'date-fns';
-import { EVENT_COLORS } from '../../utils/calendarHelpers';
-import { Video, User, AlertCircle } from 'lucide-react';
+import { STATUS_COLORS } from '../../utils/calendarHelpers';
+import { Video, User, AlertCircle, Clock } from 'lucide-react';
 
 const EventBlock = ({ event, style, onClick, onDragStart, onDragResize, isDragging }) => {
-  const type    = event.type || 'TECHNICAL';
-  const colors  = EVENT_COLORS[type] || EVENT_COLORS.TECHNICAL;
+  const status  = event.status || 'SCHEDULED';
+  const colors  = STATUS_COLORS[status] || STATUS_COLORS.SCHEDULED;
   const resizeRef = useRef(null);
 
   const startTime = format(new Date(event.scheduled_time), 'h:mm a');
-  const title     = event.title || `${type} Interview`;
+  const title     = event.title || 'Interview';
   const candidate = event.candidate?.name || event.organizer_email || '';
+  const duration  = event.duration_minutes || 60;
 
-  const isShort   = (event.duration_minutes || 60) < 30;
+  const isShort   = duration < 30;
 
   return (
     <div
@@ -44,26 +45,24 @@ const EventBlock = ({ event, style, onClick, onDragStart, onDragResize, isDraggi
         </div>
       )}
 
-      {/* Meeting color dot */}
-      {event.meeting_color && (
-        <div
-          className="absolute top-1.5 left-1 w-1.5 h-1.5 rounded-full"
-          style={{ backgroundColor: event.meeting_color }}
-        />
-      )}
-
-      <div className={`flex flex-col gap-0.5 ${event.meeting_color ? 'pl-2.5' : ''}`}>
-        {/* Time */}
-        {!isShort && (
-          <span className={`text-[10px] font-medium opacity-80 ${colors.text}`}>
-            {startTime}
-          </span>
-        )}
-
+      <div className={`flex flex-col gap-0.5`}>
         {/* Title */}
         <span className={`text-xs font-semibold leading-tight truncate ${colors.text}`}>
           {event.is_private ? '🔒 Private' : title}
         </span>
+
+        {/* Status */}
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${colors.text}`}>
+          {status}
+        </span>
+
+        {/* Time & Duration */}
+        {!isShort && (
+          <span className={`text-[10px] font-medium opacity-80 flex items-center gap-1 ${colors.text}`}>
+            <Clock className="w-2.5 h-2.5 flex-shrink-0" />
+            {startTime} ({duration}m)
+          </span>
+        )}
 
         {/* Candidate */}
         {!isShort && candidate && (

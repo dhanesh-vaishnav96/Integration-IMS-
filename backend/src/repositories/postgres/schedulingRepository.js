@@ -99,12 +99,16 @@ const schedulingRepository = {
     const endOfSlot = new Date(startTime).getTime() + (
       new Date(endTime).getTime() - new Date(startTime).getTime()
     );
+    // Assuming max duration is 240 mins (4 hours)
+    const maxPastTime = new Date(new Date(startTime).getTime() - 240 * 60000);
     const where = {
       deleted_at: null,
       candidate_id: candidateId,
       status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-      scheduled_time: { lt: new Date(endTime) },
-      // end_time > startTime — approximate: scheduled_time + duration > startTime
+      scheduled_time: { 
+        lt: new Date(endTime),
+        gt: maxPastTime
+      },
     };
     if (excludeId) where.id = { not: excludeId };
 
@@ -132,10 +136,15 @@ const schedulingRepository = {
   async findParticipantConflicts(emails, startTime, endTime, excludeId = null) {
     if (!emails || !emails.length) return [];
 
+    // Assuming max duration is 240 mins (4 hours)
+    const maxPastTime = new Date(new Date(startTime).getTime() - 240 * 60000);
     const where = {
       deleted_at: null,
       status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-      scheduled_time: { lt: new Date(endTime) },
+      scheduled_time: { 
+        lt: new Date(endTime),
+        gt: maxPastTime
+      },
       participants: { some: { email: { in: emails }, deleted_at: null } },
     };
     if (excludeId) where.id = { not: excludeId };
