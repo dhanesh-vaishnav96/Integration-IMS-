@@ -3,74 +3,113 @@
  *
  * Business logic layer for Teams meeting scheduling.
  * Orchestrates between:
- *   - interviewRepository   (read/write to MongoDB)
- *   - candidateRepository   (validate candidate exists)
- *   - teamsGraphService     (create/update/cancel via MS Graph)
+ *   - interviewRepository     (read/write to RDS/Postgres)
+ *   - candidateRepository     (validate candidate exists)
+ *   - teamsGraphService       (create/update/cancel via MS Graph)
+ *   - calendarBlockingService (block panelist Outlook calendars)   ← Phase 1 addition
  *
  * Mapping contract enforced here:
  *   candidate_id → interview_id → teams_meeting_id
  *
  * This service NEVER maps by email. Always by IDs.
  *
- * Scheduling flow:
+ * Full Scheduling Flow (Phase 1):
  * 1. Validate interview exists and has no Teams meeting yet
  * 2. Build meeting payload from interview + candidate data
- * 3. Call teamsGraphService.createMeeting()
- * 4. Save teams_meeting_id + join URL back to Interview
- * 5. Return the updated interview
+ * 3. Call teamsGraphService.createMeeting()          → get Teams joinUrl + meeting ID
+ * 4. Call calendarBlockingService.blockPanelistCalendars() → block each panelist (best-effort)
+ * 5. Save teams_meeting_id + join URL back to Interview in RDS
+ * 6. Return updated interview + teams details + calendar blocking results
  *
  * Error Handling:
- * - If Graph API fails AFTER we stored partial data → log warning, allow retry
+ * - If Graph API fails on Teams creation → throw (abort everything)
+ * - If calendar blocking fails for some panelists → log, continue, return partial results
  * - If interview already has a teams_meeting_id → return 409 Conflict
  * - If interview is CANCELLED → reject scheduling
+ *
+ * Organizer in Application Mode:
+ * - organizerUserId must be the AAD Object ID (UUID) of the organizer in app mode
+ * - Falls back to GRAPH_ORGANIZER_USER_ID env var if not supplied in request
  */
-const teamsGraphService = require('./msGraph/teamsGraphService');
+
+'use strict';
+
+const teamsGraphService       = require('./msGraph/teamsGraphService');
+const calendarBlockingService = require('./msGraph/calendarBlockingService'); // ← Phase 1
 const { interviewRepository, candidateRepository } = require('../repositories');
-
-
-const AppError = require('../utils/AppError');
-const logger = require('../config/logger');
+const AppError  = require('../utils/AppError');
+const logger    = require('../config/logger');
 const { HTTP_STATUS, INTERVIEW_STATUS } = require('../constants');
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
  * Build a human-readable Teams meeting subject.
  * Format: "Interview: {CandidateName} — {JobRole}"
  */
 const buildMeetingSubject = (candidate, interview) => {
-  const name = candidate.name || 'Candidate';
-  const role = candidate.job_role || interview.organizer_email;
+  const name = candidate.name    || 'Candidate';
+  const role = candidate.job_role || interview.organizer_email || 'Interview';
   return `Interview: ${name} — ${role}`;
 };
 
 /**
  * Calculate endDateTime given a start time and duration.
- * @param {Date|string} startDateTime
- * @param {number} durationMinutes
- * @returns {string} ISO 8601 endDateTime string
  */
 const calculateEndTime = (startDateTime, durationMinutes = 60) => {
   const start = new Date(startDateTime);
   return new Date(start.getTime() + durationMinutes * 60 * 1000).toISOString();
 };
 
+/**
+ * Resolve the organizer user ID for Application mode.
+ * Priority: supplied in request → GRAPH_ORGANIZER_USER_ID env var → null (will use delegated /me)
+ */
+const resolveOrganizerUserId = (suppliedId) => {
+  if (suppliedId) return suppliedId;
+  const envId = process.env.GRAPH_ORGANIZER_USER_ID;
+  if (envId) {
+    logger.debug(`[TeamsScheduling] Using GRAPH_ORGANIZER_USER_ID env var: ${envId}`);
+    return envId;
+  }
+  return null;
+};
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
 const teamsSchedulingService = {
+
   /**
    * scheduleInterview()
    *
-   * Creates a Teams meeting for an existing interview record.
-   * The interview must already exist (created in Phase 2 via POST /api/v1/interviews).
+   * Creates a Teams meeting for an existing interview record, then blocks
+   * panelist calendars. The interview must already exist in RDS.
    *
-   * @param {string} interviewId - MongoDB interview _id
-   * @param {Object} options - { organizerUserId?, userCacheKey?, updatedBy? }
-   * @returns {Object} Updated interview with teams_meeting_id and join URL
+   * @param {string} interviewId - RDS interview UUID (or legacy Mongo ID)
+   * @param {Object} options     - {
+   *   organizerUserId?: string,    AAD Object ID of organizer (application mode)
+   *   userCacheKey?:   string,     Delegated session key (delegated mode only)
+   *   panelists?:      string[],   Array of panelist email/UPN addresses to block
+   *   updatedBy?:      string
+   * }
+   * @returns {Object} { interview, teams: { id, joinUrl, ... }, calendarBlocking: [...] }
    */
   async scheduleInterview(interviewId, options = {}) {
-    const { organizerUserId = null, userCacheKey = null, updatedBy = 'system' } = options;
-    const log = logger;
+    const {
+      userCacheKey  = null,
+      panelists     = [],
+      updatedBy     = 'system',
+    } = options;
 
-    log.info(`[TeamsScheduling] Scheduling interview: ${interviewId}`);
+    // Resolve organizer user ID with env fallback
+    const organizerUserId = resolveOrganizerUserId(options.organizerUserId);
 
-    // ── Step 1: Validate interview exists ──────────────────────────
+    logger.info(
+      `[TeamsScheduling] Scheduling interview: ${interviewId} | ` +
+      `panelists: ${panelists.length} | organizer: ${organizerUserId || 'delegated /me'}`
+    );
+
+    // ── Step 1: Validate interview ─────────────────────────────────────────────
     const interview = await interviewRepository.findById(interviewId);
     if (!interview) {
       throw new AppError('Interview not found.', HTTP_STATUS.NOT_FOUND);
@@ -86,13 +125,15 @@ const teamsSchedulingService = {
     if (interview.teams_meeting_id) {
       throw new AppError(
         `This interview already has a Teams meeting (ID: ${interview.teams_meeting_id}). ` +
-          'Use PUT /api/v1/teams/:id to update it.',
+        'Use PUT /api/v1/teams/:id to update it.',
         HTTP_STATUS.CONFLICT
       );
     }
 
-    // ── Step 2: Validate and load candidate ─────────────────────────
-    const candidate = await candidateRepository.findById(interview.candidate_id._id || interview.candidate_id);
+    // ── Step 2: Validate candidate ────────────────────────────────────────────
+    const candidate = await candidateRepository.findById(
+      interview.candidate_id?._id || interview.candidate_id
+    );
     if (!candidate) {
       throw new AppError(
         'Cannot schedule meeting: linked candidate not found.',
@@ -100,32 +141,68 @@ const teamsSchedulingService = {
       );
     }
 
-    // ── Step 3: Build meeting payload ───────────────────────────────
+    // ── Step 3: Build Teams meeting payload ───────────────────────────────────
     const startDateTime = new Date(interview.scheduled_time).toISOString();
-    const endDateTime = calculateEndTime(interview.scheduled_time, interview.duration_minutes);
-    const subject = buildMeetingSubject(candidate, interview);
+    const endDateTime   = calculateEndTime(interview.scheduled_time, interview.duration_minutes);
+    const subject       = buildMeetingSubject(candidate, interview);
 
-    const attendees = [];
-    if (interview.interviewer_email) attendees.push(interview.interviewer_email);
+    // Attendees for the Teams meeting itself (candidate + panelists + interviewer)
+    const attendeeEmails = [];
+    if (candidate.email)                attendeeEmails.push(candidate.email);
+    if (interview.interviewer_email)    attendeeEmails.push(interview.interviewer_email);
+    if (panelists.length > 0)           attendeeEmails.push(...panelists);
 
-    const meetingPayload = { subject, startDateTime, endDateTime, attendees };
+    // Deduplicate attendees
+    const uniqueAttendees = [...new Set(attendeeEmails)];
 
-    log.info(
-      `[TeamsScheduling] Creating Teams meeting | subject: "${subject}" | start: ${startDateTime}`
+    const meetingPayload = { subject, startDateTime, endDateTime, attendees: uniqueAttendees };
+
+    logger.info(
+      `[TeamsScheduling] Creating Teams meeting | subject: "${subject}" | ` +
+      `start: ${startDateTime} | attendees: ${uniqueAttendees.length}`
     );
 
-    // ── Step 4: Create meeting via Graph API ────────────────────────
+    // ── Step 4: Create Teams meeting via Graph API ─────────────────────────────
+    // If this fails, we abort the entire flow (no partial state saved)
     const graphMeeting = await teamsGraphService.createMeeting(
       meetingPayload,
       organizerUserId,
       userCacheKey
     );
 
-    // ── Step 5: Save meeting data back to Interview (critical step) ─
+    const joinUrl = graphMeeting.joinUrl || graphMeeting.joinWebUrl;
+    logger.info(
+      `[TeamsScheduling] Teams meeting created | graphId: ${graphMeeting.id} | joinUrl: ${joinUrl ? 'present' : 'MISSING'}`
+    );
+
+    // ── Step 4b: Block panelist calendars (best-effort, does NOT abort on failure) ──
+    let calendarBlockingResults = [];
+    if (panelists.length > 0) {
+      logger.info(`[TeamsScheduling] Starting calendar blocking for ${panelists.length} panelist(s)...`);
+
+      calendarBlockingResults = await calendarBlockingService.blockPanelistCalendars(
+        panelists,
+        {
+          subject,
+          startDateTime,
+          endDateTime,
+          joinUrl,
+          organizerEmail: interview.organizer_email,
+        },
+        userCacheKey
+      );
+    } else {
+      logger.info('[TeamsScheduling] No panelists supplied — calendar blocking skipped.');
+    }
+
+    // ── Step 5: Persist Teams meeting data to RDS ─────────────────────────────
+    // This is the critical write. If it fails, the Teams meeting exists but is not
+    // linked in our DB. The client can retry, and the service will detect the
+    // existing teams_meeting_id on Graph and re-link it manually if needed.
     const teamsData = {
       teams_meeting_id: graphMeeting.id,
-      meeting_join_url: graphMeeting.joinUrl || graphMeeting.joinWebUrl,
-      status: INTERVIEW_STATUS.SCHEDULED,
+      meeting_join_url: joinUrl,
+      status:           INTERVIEW_STATUS.SCHEDULED,
       updatedBy,
     };
 
@@ -134,19 +211,21 @@ const teamsSchedulingService = {
       teamsData
     );
 
-    log.info(
+    logger.info(
       `[TeamsScheduling] ✅ Interview ${interviewId} linked to Teams meeting: ${graphMeeting.id}`
     );
 
+    // ── Step 6: Return unified result ─────────────────────────────────────────
     return {
       interview: updatedInterview,
       teams: {
-        id: graphMeeting.id,
-        joinUrl: graphMeeting.joinUrl || graphMeeting.joinWebUrl,
-        subject: graphMeeting.subject,
+        id:            graphMeeting.id,
+        joinUrl,
+        subject:       graphMeeting.subject,
         startDateTime: graphMeeting.startDateTime,
-        endDateTime: graphMeeting.endDateTime,
+        endDateTime:   graphMeeting.endDateTime,
       },
+      calendarBlocking: calendarBlockingResults,
     };
   },
 
@@ -156,13 +235,18 @@ const teamsSchedulingService = {
    * Updates a Teams meeting tied to an existing interview.
    * Allowed updates: subject override, scheduled_time change, duration change.
    *
-   * @param {string} interviewId - MongoDB interview _id
-   * @param {Object} updates - { subject?, scheduled_time?, duration_minutes? }
-   * @param {Object} options - { organizerUserId?, userCacheKey?, updatedBy? }
-   * @returns {Object} Updated interview + Graph meeting object
+   * @param {string} interviewId - RDS interview UUID
+   * @param {Object} updates     - { subject?, scheduled_time?, duration_minutes? }
+   * @param {Object} options     - { organizerUserId?, userCacheKey?, updatedBy? }
+   * @returns {Object} { interview, teams: GraphMeetingObject }
    */
   async updateScheduledInterview(interviewId, updates, options = {}) {
-    const { organizerUserId = null, userCacheKey = null, updatedBy = 'system' } = options;
+    const {
+      userCacheKey = null,
+      updatedBy    = 'system',
+    } = options;
+
+    const organizerUserId = resolveOrganizerUserId(options.organizerUserId);
 
     logger.info(`[TeamsScheduling] Updating interview: ${interviewId}`);
 
@@ -180,21 +264,20 @@ const teamsSchedulingService = {
       throw new AppError('Cannot update a cancelled interview.', HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Build Graph update payload
+    // Build Graph update payload (only include fields that changed)
     const graphUpdates = {};
     if (updates.subject) graphUpdates.subject = updates.subject;
 
-    const newStart = updates.scheduled_time
+    const newStart   = updates.scheduled_time
       ? new Date(updates.scheduled_time).toISOString()
       : new Date(interview.scheduled_time).toISOString();
     const newDuration = updates.duration_minutes || interview.duration_minutes;
 
     if (updates.scheduled_time || updates.duration_minutes) {
       graphUpdates.startDateTime = newStart;
-      graphUpdates.endDateTime = calculateEndTime(newStart, newDuration);
+      graphUpdates.endDateTime   = calculateEndTime(newStart, newDuration);
     }
 
-    // Update on Graph API
     const graphMeeting = await teamsGraphService.updateMeeting(
       interview.teams_meeting_id,
       graphUpdates,
@@ -202,9 +285,8 @@ const teamsSchedulingService = {
       userCacheKey
     );
 
-    // Update Interview record in MongoDB with new schedule data
     const interviewUpdates = { updatedBy };
-    if (updates.scheduled_time) interviewUpdates.scheduled_time = updates.scheduled_time;
+    if (updates.scheduled_time)   interviewUpdates.scheduled_time   = updates.scheduled_time;
     if (updates.duration_minutes) interviewUpdates.duration_minutes = updates.duration_minutes;
 
     const updatedInterview = await interviewRepository.updateById(interviewId, interviewUpdates);
@@ -218,11 +300,16 @@ const teamsSchedulingService = {
    *
    * Cancels a Teams meeting and marks the interview as CANCELLED.
    *
-   * @param {string} interviewId - MongoDB interview _id
+   * @param {string} interviewId
    * @param {Object} options - { organizerUserId?, userCacheKey?, cancelledBy? }
    */
   async cancelScheduledInterview(interviewId, options = {}) {
-    const { organizerUserId = null, userCacheKey = null, cancelledBy = 'system' } = options;
+    const {
+      userCacheKey  = null,
+      cancelledBy   = 'system',
+    } = options;
+
+    const organizerUserId = resolveOrganizerUserId(options.organizerUserId);
 
     logger.info(`[TeamsScheduling] Cancelling interview: ${interviewId}`);
 
@@ -233,7 +320,6 @@ const teamsSchedulingService = {
       throw new AppError('Interview is already cancelled.', HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Cancel on Graph API (only if meeting was created)
     if (interview.teams_meeting_id) {
       try {
         await teamsGraphService.cancelMeeting(
@@ -242,18 +328,19 @@ const teamsSchedulingService = {
           userCacheKey
         );
       } catch (err) {
-        // If Graph returns 404, the meeting is already gone — still mark as cancelled in DB
+        // 404 means the meeting was already deleted from Teams — still mark DB as cancelled
         if (err.statusCode === 404) {
-          logger.warn(`[TeamsScheduling] Graph meeting already deleted: ${interview.teams_meeting_id}`);
+          logger.warn(
+            `[TeamsScheduling] Graph meeting already deleted: ${interview.teams_meeting_id}`
+          );
         } else {
           throw err;
         }
       }
     }
 
-    // Mark interview as CANCELLED in MongoDB
     const updated = await interviewRepository.updateById(interviewId, {
-      status: INTERVIEW_STATUS.CANCELLED,
+      status:    INTERVIEW_STATUS.CANCELLED,
       updatedBy: cancelledBy,
     });
 
@@ -264,15 +351,15 @@ const teamsSchedulingService = {
   /**
    * getScheduledInterview()
    *
-   * Fetches interview details from MongoDB + live meeting info from Graph API.
-   * Combines both for a complete view.
+   * Fetches interview details from RDS + live meeting info from Graph API.
    *
-   * @param {string} interviewId - MongoDB interview _id
+   * @param {string} interviewId
    * @param {Object} options - { organizerUserId?, userCacheKey? }
    * @returns {Object} { interview, teams: GraphMeetingObject | null }
    */
   async getScheduledInterview(interviewId, options = {}) {
-    const { organizerUserId = null, userCacheKey = null } = options;
+    const { userCacheKey = null } = options;
+    const organizerUserId = resolveOrganizerUserId(options.organizerUserId);
 
     const interview = await interviewRepository.findById(interviewId);
     if (!interview) throw new AppError('Interview not found.', HTTP_STATUS.NOT_FOUND);
@@ -286,11 +373,13 @@ const teamsSchedulingService = {
           userCacheKey
         );
       } catch (err) {
-        // Meeting may have been deleted from Teams side
         logger.warn(
           `[TeamsScheduling] Could not fetch Graph meeting ${interview.teams_meeting_id}: ${err.message}`
         );
-        teamsMeeting = { error: 'Meeting details unavailable from Microsoft Teams.', id: interview.teams_meeting_id };
+        teamsMeeting = {
+          error: 'Meeting details unavailable from Microsoft Teams.',
+          id:    interview.teams_meeting_id,
+        };
       }
     }
 

@@ -28,20 +28,34 @@ const extractOptions = (req) => ({
 /**
  * POST /api/v1/teams/schedule
  *
- * Creates a Teams meeting for an existing interview.
+ * Creates a Teams meeting for an existing interview, then blocks panelist calendars.
  * The interview record must already exist (Phase 2).
  *
  * Request body:
- *   { interview_id, organizer_user_id? }
+ *   {
+ *     interview_id:      string (required)  — RDS interview UUID / legacy Mongo ID
+ *     panelists?:        string[]           — Email addresses of panelists to calendar-block
+ *     organizer_user_id?: string            — AAD Object ID of organizer (application mode)
+ *   }
  *
  * Response:
- *   { interview: {...}, teams: { id, joinUrl, subject, startDateTime, endDateTime } }
+ *   {
+ *     interview:        {...},
+ *     teams:            { id, joinUrl, subject, startDateTime, endDateTime },
+ *     calendarBlocking: [{ email, success, eventId? } | { email, success, error }]
+ *   }
  */
 const scheduleInterview = asyncHandler(async (req, res) => {
-  const { interview_id } = req.body;
-  const options = extractOptions(req);
+  const { interview_id, panelists = [] } = req.body;
+  const options = {
+    ...extractOptions(req),
+    panelists: Array.isArray(panelists) ? panelists : [],
+  };
 
-  logger.info(`[TeamsCtrl] Schedule interview: ${interview_id} | requestId: ${req.requestId}`);
+  logger.info(
+    `[TeamsCtrl] Schedule interview: ${interview_id} | ` +
+    `panelists: ${options.panelists.length} | requestId: ${req.requestId}`
+  );
 
   const result = await teamsSchedulingService.scheduleInterview(interview_id, options);
 

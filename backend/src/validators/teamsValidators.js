@@ -20,14 +20,32 @@ const scheduleInterviewSchema = Joi.object({
   interview_id: mongoIdSchema.required().messages({
     'any.required': 'interview_id is required. Create the interview first via POST /api/v1/interviews.',
   }),
+
   // Optional override for the auto-generated meeting subject
   subject_override: Joi.string().trim().min(3).max(250).optional().messages({
     'string.min': 'Subject override must be at least 3 characters.',
   }),
+
   // Required in application auth mode (AAD User ID of the organizer)
+  // If omitted, falls back to GRAPH_ORGANIZER_USER_ID env var.
   organizer_user_id: Joi.string().trim().optional().messages({
     'string.base': 'organizer_user_id must be an AAD User Object ID or UPN.',
   }),
+
+  // Phase 1: Array of panelist email addresses whose Outlook calendars will be blocked.
+  // Leave empty or omit to skip calendar blocking.
+  panelists: Joi.array()
+    .items(
+      Joi.string().email({ tlds: { allow: false } }).messages({
+        'string.email': 'Each panelist must be a valid email address.',
+      })
+    )
+    .max(20)
+    .optional()
+    .default([])
+    .messages({
+      'array.max': 'A maximum of 20 panelists can be selected per interview.',
+    }),
 });
 
 /**

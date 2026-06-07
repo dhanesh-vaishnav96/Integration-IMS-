@@ -18,13 +18,17 @@ const config = {
     sqsQueueUrl: process.env.SQS_QUEUE_URL,
   },
   msGraph: {
-    clientId: process.env.AZURE_CLIENT_ID,
-    clientSecret: process.env.AZURE_CLIENT_SECRET,
-    tenantId: process.env.AZURE_TENANT_ID,
-    redirectUri: process.env.AZURE_REDIRECT_URI || 'http://localhost:5000/api/v1/ms/auth/callback',
-    scopes: (process.env.GRAPH_SCOPES || 'User.Read').split(',').map((s) => s.trim()),
-    graphApiBaseUrl: process.env.GRAPH_API_BASE_URL || 'https://graph.microsoft.com/v1.0',
-    authMode: process.env.AUTH_MODE || 'delegated', // 'delegated' | 'application'
+    clientId:          process.env.AZURE_CLIENT_ID,
+    clientSecret:      process.env.AZURE_CLIENT_SECRET,
+    tenantId:          process.env.AZURE_TENANT_ID,
+    redirectUri:       process.env.AZURE_REDIRECT_URI || 'http://localhost:5000/api/v1/ms/auth/callback',
+    scopes:            (process.env.GRAPH_SCOPES || 'User.Read').split(',').map((s) => s.trim()),
+    graphApiBaseUrl:   process.env.GRAPH_API_BASE_URL || 'https://graph.microsoft.com/v1.0',
+    authMode:          process.env.AUTH_MODE || 'application', // 'delegated' | 'application'
+    // Phase 1: Default organizer user ID for application-mode meeting creation.
+    // Set to the AAD Object ID (UUID) of the HR organizer account.
+    // Used as fallback when organizer_user_id is not passed in the request body.
+    organizerUserId:   process.env.GRAPH_ORGANIZER_USER_ID || null,
   },
 };
 
