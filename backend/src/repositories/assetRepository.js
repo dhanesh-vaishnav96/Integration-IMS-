@@ -1,30 +1,45 @@
 /**
  * repositories/assetRepository.js
  *
- * Data Access Layer for the InterviewAsset model.
- * Asset records are created by the SQS worker (Phase 3).
+ * Data Access Layer for the InterviewAsset model using Prisma.
+ * Asset records are created by the Queue worker (Phase 3).
  * This repository is used by the dashboard APIs to fetch
  * recording/transcript URLs per candidate.
  */
-const { InterviewAsset } = require('../models/InterviewAsset');
+const { prisma } = require('../config/prisma');
 
 const assetRepository = {
   /**
    * Upsert: Creates the asset record if it doesn't exist, or updates it.
-   * The worker calls this after uploading to S3.
    */
   async upsertByInterviewId(interviewId, data) {
-    return InterviewAsset.findOneAndUpdate(
-      { interview_id: interviewId },
-      { $set: data },
-      { new: true, upsert: true, runValidators: true }
-    );
+    // Convert Mongoose $set syntax if inadvertently passed
+    const cleanData = data.$set || data;
+
+    return prisma.interviewAsset.upsert({
+      where: { interview_id: interviewId },
+      update: cleanData,
+      create: {
+        interview_id: interviewId,
+        candidate_id: cleanData.candidate_id, // ensure required fields are passed when creating
+        ...cleanData
+      }
+    });
   },
 
   async findByInterviewId(interviewId) {
-    return InterviewAsset.findOne({ interview_id: interviewId, deletedAt: null })
-      .populate('interview_id', 'scheduled_time status teams_meeting_id')
-      .populate('candidate_id', 'name email job_role');
+    return prisma.interviewAsset.findUnique({
+      where: { interview_id: interviewId },
+      include: {
+        interview: {
+          select: {
+            scheduled_time: true,
+            status: true,
+            teams_meeting_id: true,
+          }
+        }
+      }
+    });
   },
 
   /**
@@ -32,17 +47,28 @@ const assetRepository = {
    * Returns newest first, with interview details populated.
    */
   async findByCandidateId(candidateId, { page = 1, limit = 10 } = {}) {
-    const query = { candidate_id: candidateId, deletedAt: null };
     const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
-      InterviewAsset.find(query)
-        .populate('interview_id', 'scheduled_time status organizer_email duration_minutes')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      InterviewAsset.countDocuments(query),
+      prisma.interviewAsset.findMany({
+        where: { candidate_id: candidateId, deleted_at: null },
+        include: {
+          interview: {
+            select: {
+              scheduled_time: true,
+              status: true,
+              organizer_email: true,
+              duration_minutes: true
+            }
+          }
+        },
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.interviewAsset.count({
+        where: { candidate_id: candidateId, deleted_at: null }
+      }),
     ]);
 
     return {
@@ -60,21 +86,41 @@ const assetRepository = {
    * Find all assets with PENDING or FAILED status — used by retry jobs (Phase 3).
    */
   async findPendingAssets() {
-    return InterviewAsset.find({
-      $or: [
-        { recording_status: { $in: ['PENDING', 'FAILED'] } },
-        { transcript_status: { $in: ['PENDING', 'FAILED'] } },
-      ],
-      deletedAt: null,
-    }).populate('interview_id', 'teams_meeting_id candidate_id');
+    return prisma.interviewAsset.findMany({
+      where: {
+        OR: [
+          { recording_status: { in: ['PENDING', 'FAILED'] } },
+          { transcript_status: { in: ['PENDING', 'FAILED'] } },
+        ],
+        deleted_at: null,
+      },
+      include: {
+        interview: {
+          select: {
+            teams_meeting_id: true,
+            candidate_id: true
+          }
+        }
+      }
+    });
   },
 
   async appendLog(interviewId, logEntry) {
-    return InterviewAsset.findOneAndUpdate(
-      { interview_id: interviewId },
-      { $push: { processing_logs: { ...logEntry, timestamp: new Date() } } },
-      { new: true }
-    );
+    // Prisma doesn't have a simple $push for JSON arrays, so we must fetch and update
+    const asset = await prisma.interviewAsset.findUnique({
+      where: { interview_id: interviewId },
+      select: { logs: true }
+    });
+
+    if (!asset) return null;
+
+    const logsArray = Array.isArray(asset.logs) ? asset.logs : [];
+    logsArray.push({ ...logEntry, timestamp: new Date().toISOString() });
+
+    return prisma.interviewAsset.update({
+      where: { interview_id: interviewId },
+      data: { logs: logsArray }
+    });
   },
 };
 

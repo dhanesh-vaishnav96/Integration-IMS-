@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { Calendar, Video, FileText, Clock, AlertCircle, RefreshCw, Plus, X } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { AssetCard } from '../components/dashboard/AssetCard';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -15,7 +16,6 @@ const Dashboard = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [scheduling, setScheduling] = useState(false);
-  const [assetLinks, setAssetLinks] = useState({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState({
@@ -72,14 +72,7 @@ const Dashboard = () => {
     }
   };
 
-  const fetchAssetLinks = async (interviewId) => {
-    try {
-      const res = await dashboardApi.getAssetLinks(id, interviewId);
-      setAssetLinks(prev => ({ ...prev, [interviewId]: res.data.data }));
-    } catch {
-      alert('Failed to load asset links.');
-    }
-  };
+
 
   if (loading) return <div className="p-8 text-center text-slate-500 font-medium">Loading candidate dashboard...</div>;
   if (!data) return <div className="p-8 text-center text-rose-500 font-medium">Failed to load dashboard.</div>;
@@ -124,8 +117,6 @@ const Dashboard = () => {
           <div className="space-y-5">
             {interviews.map(interview => {
               const hasTeams = !!interview.teams_meeting_id;
-              const assets = interview.assets;
-              const links = assetLinks[interview._id || interview.id];
 
               return (
                 <div key={interview._id || interview.id} className="bg-surface border border-borderSoft rounded-[20px] overflow-hidden transition-all hover:shadow-md hover:border-slate-300">
@@ -170,68 +161,7 @@ const Dashboard = () => {
                     </div>
 
                     {/* Assets Section */}
-                    {hasTeams && assets && (
-                      <div className="mt-7 pt-7 border-t border-borderSoft">
-                        <h4 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Processing & Artifacts</h4>
-                        
-                        <div className="grid grid-cols-2 gap-5">
-                          {/* Recording Box */}
-                          <div className="bg-slate-50 rounded-[16px] p-5 border border-slate-200 shadow-sm">
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-sm font-bold text-slate-700 flex items-center">
-                                <Video className="w-4 h-4 mr-2 text-primary-500" />
-                                Recording
-                              </span>
-                              <StatusBadge status={assets.recording_status} />
-                            </div>
-                            {assets.recording_status === 'UPLOADED' && (
-                              <div className="mt-4">
-                                {links?.recordingUrl ? (
-                                  <a href={links.recordingUrl} target="_blank" rel="noreferrer" className="text-sm font-semibold text-primary-600 hover:text-primary-700 hover:underline">
-                                    Watch Video
-                                  </a>
-                                ) : (
-                                  <button onClick={() => fetchAssetLinks(interview._id || interview.id)} className="text-sm font-semibold text-slate-500 hover:text-slate-700 transition">
-                                    Generate Viewer Link
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Transcript Box */}
-                          <div className="bg-slate-50 rounded-[16px] p-5 border border-slate-200 shadow-sm">
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-sm font-bold text-slate-700 flex items-center">
-                                <FileText className="w-4 h-4 mr-2 text-primary-500" />
-                                Transcript
-                              </span>
-                              <StatusBadge status={assets.transcript_status} />
-                            </div>
-                            {assets.transcript_status === 'UPLOADED' && (
-                              <div className="mt-4">
-                                {links?.transcriptUrl ? (
-                                  <a href={links.transcriptUrl} target="_blank" rel="noreferrer" className="text-sm font-semibold text-primary-600 hover:text-primary-700 hover:underline">
-                                    View Transcript
-                                  </a>
-                                ) : (
-                                  <button onClick={() => fetchAssetLinks(interview._id || interview.id)} className="text-sm font-semibold text-slate-500 hover:text-slate-700 transition">
-                                    Generate Viewer Link
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {hasTeams && !assets && (
-                      <div className="mt-7 pt-7 border-t border-borderSoft flex items-center text-amber-600 font-medium text-sm bg-amber-50 p-4 rounded-[12px] border border-amber-200">
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                        Waiting for meeting to end to fetch artifacts...
-                      </div>
-                    )}
+                    {hasTeams && <AssetCard interviewId={interview._id || interview.id} />}
 
                   </div>
                 </div>
@@ -282,12 +212,5 @@ const Dashboard = () => {
     </div>
   );
 };
-
-const StatusBadge = ({ status }) => {
-  if (status === 'UPLOADED') return <span className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-200">Ready</span>;
-  if (status === 'PROCESSING') return <span className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider border bg-amber-50 text-amber-700 border-amber-200 flex items-center"><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Processing</span>;
-  if (status === 'FAILED') return <span className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider border bg-rose-50 text-rose-700 border-rose-200 flex items-center"><AlertCircle className="w-3 h-3 mr-1" /> Failed</span>;
-  return <span className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider border bg-blue-50 text-blue-700 border-blue-200">Pending</span>;
-}
 
 export default Dashboard;

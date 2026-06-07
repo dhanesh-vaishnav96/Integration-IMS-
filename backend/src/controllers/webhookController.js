@@ -1,63 +1,87 @@
 /**
  * controllers/webhookController.js
  *
- * Handles incoming MS Graph webhook notifications and validation.
- *
- * CRITICAL: Graph requires a response within 10 seconds of notification delivery.
- * We respond with 202 immediately and process async via SQS.
+ * Handles Microsoft Graph webhooks for interview recordings and transcripts.
+ * Independent of Graph readiness - stores events and pushes to queue.
  */
-const asyncHandler = require('../utils/asyncHandler');
-const webhookService = require('../services/webhookService');
+
+const { validateGraphWebhook } = require('../validators/webhookValidators');
+const webhookEventRepository = require('../repositories/webhookEventRepository');
+const mockQueueService = require('../services/queue/mockQueueService');
 const logger = require('../config/logger');
 
-// Lazy import to avoid circular dependency — sqsProducer is initialized after app starts
-const getProducer = () => require('../services/queue/sqsProducer');
+const webhookController = {
+  /**
+   * GET /api/v1/webhooks/health
+   * Simple health check for the webhook endpoint.
+   */
+  async healthCheck(req, res) {
+    res.status(200).json({ status: 'ok', message: 'Webhook receiver is healthy' });
+  },
 
-/**
- * GET /api/v1/webhooks/validate
- *
- * Graph sends this during subscription creation to validate the endpoint.
- * Must respond with 200 + plain text validationToken within 10 seconds.
- */
-const validateWebhook = (req, res) => {
-  const { validationToken } = req.query;
-  if (validationToken) {
-    logger.info(`[WebhookCtrl] Validation token received — confirming subscription`);
-    res.set('Content-Type', 'text/plain');
-    return res.status(200).send(validationToken);
+  /**
+   * POST /api/v1/webhooks/graph
+   * Main webhook receiver for Microsoft Graph subscriptions.
+   */
+  async handleGraphWebhook(req, res) {
+    // 1. Handle validationToken (Subscription creation flow)
+    if (req.query && req.query.validationToken) {
+      logger.info('[WebhookController] Received validationToken request');
+      res.setHeader('Content-Type', 'text/plain');
+      return res.status(200).send(req.query.validationToken);
+    }
+
+    // 2. Validate payload structure
+    const { error } = validateGraphWebhook(req.body);
+    if (error) {
+      logger.warn(`[WebhookController] Invalid webhook payload: ${error.message}`);
+      return res.status(400).json({ error: 'Invalid payload structure' });
+    }
+
+    const notifications = req.body.value;
+
+    // Acknowledge receipt immediately (Graph requires 202 Accepted quickly)
+    res.status(202).send();
+
+    // 3. Process notifications asynchronously
+    for (const notification of notifications) {
+      const changeId = `${notification.changeType}:${notification.resourceData?.id || notification.resource || Date.now()}`;
+
+      try {
+        // Idempotency: Check if we've already received this event
+        const alreadyExists = await webhookEventRepository.existsByChangeId(changeId);
+        if (alreadyExists) {
+          logger.info(`[WebhookController] Duplicate webhook event ignored: ${changeId}`);
+          continue;
+        }
+
+        // Store event in DB
+        await webhookEventRepository.create({
+          change_id: changeId,
+          subscription_id: notification.subscriptionId || 'mock-sub',
+          resource: notification.resource || 'unknown',
+          change_type: notification.changeType || 'unknown',
+          resource_data: notification.resourceData || {},
+          raw_payload: notification,
+          status: 'RECEIVED'
+        });
+
+        // Push to Mock Queue Service
+        await mockQueueService.add('webhook_queue', 'process_graph_event', notification);
+
+        // Mark as QUEUED in DB
+        await webhookEventRepository.updateStatus(changeId, 'QUEUED');
+        logger.info(`[WebhookController] ✅ Webhook queued successfully: ${changeId}`);
+
+      } catch (err) {
+        logger.error(`[WebhookController] ❌ Failed to process webhook ${changeId}: ${err.message}`);
+        // Attempt to mark as failed
+        try {
+          await webhookEventRepository.updateStatus(changeId, 'FAILED', { error_message: err.message });
+        } catch (_) {}
+      }
+    }
   }
-  return res.status(400).json({ success: false, message: 'No validation token provided.' });
 };
 
-/**
- * POST /api/v1/webhooks/teams
- *
- * Receives change notifications from Microsoft Graph.
- * Must respond with 202 Accepted immediately — Graph will retry if we're slow.
- * All actual processing happens asynchronously via SQS.
- */
-const receiveNotification = asyncHandler(async (req, res) => {
-  // Respond immediately — Graph requires < 10s response
-  res.status(202).send();
-
-  const { value: notifications } = req.body;
-
-  if (!notifications || !Array.isArray(notifications) || notifications.length === 0) {
-    logger.debug('[WebhookCtrl] Empty notification payload received');
-    return;
-  }
-
-  logger.info(`[WebhookCtrl] Received ${notifications.length} notification(s) | requestId: ${req.requestId}`);
-
-  // Process async (does not block the response)
-  const producer = getProducer();
-  webhookService.processNotifications(notifications, (job) => producer.enqueue(job))
-    .then((results) => {
-      logger.info(`[WebhookCtrl] Notification results: ${JSON.stringify(results)}`);
-    })
-    .catch((err) => {
-      logger.error(`[WebhookCtrl] Notification processing error: ${err.message}`);
-    });
-});
-
-module.exports = { validateWebhook, receiveNotification };
+module.exports = webhookController;

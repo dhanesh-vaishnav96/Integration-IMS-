@@ -1,18 +1,8 @@
 /**
  * services/s3UploadService.js
  *
- * AWS S3 upload service (Phase 6).
- *
- * Folder structure enforced:
- *   {bucketName}/{candidateId}/{interviewId}/recording.mp4
- *   {bucketName}/{candidateId}/{interviewId}/transcript.txt
- *
- * Upload strategy: stream-to-S3 using @aws-sdk/lib-storage Upload class.
- * This avoids buffering large video files in memory.
- *
- * Presigned URLs:
- *   - Generated on-demand with 1-hour TTL for secure dashboard access.
- *   - Never stored in DB (S3 keys are stored instead).
+ * AWS S3 upload service.
+ * Enforces structured folder convention and validates assets.
  */
 const { Upload } = require('@aws-sdk/lib-storage');
 const { GetObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
@@ -24,24 +14,23 @@ const { S3_PATHS } = require('../constants');
 const AppError = require('../utils/AppError');
 const { HTTP_STATUS } = require('../constants');
 
+// Configurable limits and TTLs
 const PRESIGNED_URL_EXPIRES = parseInt(process.env.S3_PRESIGNED_TTL_SECONDS || '3600', 10);
+const MAX_RECORDING_SIZE = parseInt(process.env.MAX_RECORDING_SIZE_BYTES || '1073741824', 10); // 1GB
+const MAX_TRANSCRIPT_SIZE = parseInt(process.env.MAX_TRANSCRIPT_SIZE_BYTES || '10485760', 10); // 10MB
+
+const VALID_VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/x-matroska'];
+const VALID_TEXT_MIMES = ['text/plain', 'text/vtt', 'application/json'];
 
 const s3UploadService = {
   /**
    * uploadStream()
    *
    * Streams data directly to S3 without buffering in memory.
-   * Used for large video files (recordings).
-   *
-   * @param {Stream|Buffer|string} body - Data to upload
-   * @param {string} s3Key - Full S3 key (path within bucket)
-   * @param {string} contentType - MIME type (e.g., 'video/mp4', 'text/plain')
-   * @param {Object} [metadata] - Custom metadata key-value pairs
-   * @returns {Object} { s3Key, s3Url, etag }
    */
   async uploadStream(body, s3Key, contentType, metadata = {}) {
     const bucket = config.aws.s3BucketName;
-    logger.info(`[S3UploadService] Uploading → s3://${bucket}/${s3Key}`);
+    logger.info(`[S3UploadService] Uploading → s3://${bucket}/${s3Key} (${contentType})`);
 
     try {
       const upload = new Upload({
@@ -55,10 +44,8 @@ const s3UploadService = {
             'uploaded-by': 'interview-management-system',
             ...metadata,
           },
-          // Server-side encryption
           ServerSideEncryption: 'AES256',
         },
-        // Multi-part threshold: 5MB parts for large files
         partSize: 5 * 1024 * 1024,
         leavePartsOnError: false,
       });
@@ -81,16 +68,19 @@ const s3UploadService = {
   /**
    * uploadRecording()
    *
-   * Uploads a meeting recording using the standard folder convention.
-   *
-   * @param {Stream|Buffer} recordingStream - Video data stream
-   * @param {string} candidateId
-   * @param {string} interviewId
-   * @returns {Object} { s3Key, s3Url }
+   * Validates and uploads a meeting recording.
    */
-  async uploadRecording(recordingStream, candidateId, interviewId) {
+  async uploadRecording(recordingStream, candidateId, interviewId, mimeType = 'video/mp4', sizeBytes = null) {
+    if (!VALID_VIDEO_MIMES.includes(mimeType)) {
+      throw new AppError(`Invalid recording mime type: ${mimeType}`, HTTP_STATUS.BAD_REQUEST);
+    }
+    
+    if (sizeBytes && sizeBytes > MAX_RECORDING_SIZE) {
+      throw new AppError(`Recording exceeds max size of ${MAX_RECORDING_SIZE} bytes`, HTTP_STATUS.BAD_REQUEST);
+    }
+
     const s3Key = S3_PATHS.RECORDING(candidateId, interviewId);
-    return s3UploadService.uploadStream(recordingStream, s3Key, 'video/mp4', {
+    return s3UploadService.uploadStream(recordingStream, s3Key, mimeType, {
       'candidate-id': candidateId,
       'interview-id': interviewId,
       'asset-type': 'recording',
@@ -100,37 +90,31 @@ const s3UploadService = {
   /**
    * uploadTranscript()
    *
-   * Uploads transcript text content.
-   *
-   * @param {string|Buffer} transcriptContent - Transcript text
-   * @param {string} candidateId
-   * @param {string} interviewId
-   * @returns {Object} { s3Key, s3Url }
+   * Validates and uploads transcript text content.
    */
-  async uploadTranscript(transcriptContent, candidateId, interviewId) {
+  async uploadTranscript(transcriptContent, candidateId, interviewId, mimeType = 'text/plain; charset=utf-8', sizeBytes = null) {
+    const rawMime = mimeType.split(';')[0].trim();
+    if (!VALID_TEXT_MIMES.includes(rawMime)) {
+      throw new AppError(`Invalid transcript mime type: ${mimeType}`, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const buffer = Buffer.from(typeof transcriptContent === 'string' ? transcriptContent : JSON.stringify(transcriptContent, null, 2));
+    const actualSize = sizeBytes || buffer.length;
+
+    if (actualSize > MAX_TRANSCRIPT_SIZE) {
+      throw new AppError(`Transcript exceeds max size of ${MAX_TRANSCRIPT_SIZE} bytes`, HTTP_STATUS.BAD_REQUEST);
+    }
+
     const s3Key = S3_PATHS.TRANSCRIPT(candidateId, interviewId);
-    return s3UploadService.uploadStream(
-      Buffer.from(typeof transcriptContent === 'string' ? transcriptContent : JSON.stringify(transcriptContent, null, 2)),
-      s3Key,
-      'text/plain; charset=utf-8',
-      {
-        'candidate-id': candidateId,
-        'interview-id': interviewId,
-        'asset-type': 'transcript',
-      }
-    );
+    return s3UploadService.uploadStream(buffer, s3Key, mimeType, {
+      'candidate-id': candidateId,
+      'interview-id': interviewId,
+      'asset-type': 'transcript',
+    });
   },
 
   /**
    * generatePresignedUrl()
-   *
-   * Generates a time-limited presigned GET URL for a private S3 object.
-   * Used by dashboard APIs so the browser can stream video/transcript
-   * without exposing the S3 bucket directly.
-   *
-   * @param {string} s3Key - The object key in S3
-   * @param {number} [expiresIn] - TTL in seconds (default: 3600)
-   * @returns {string} Presigned URL
    */
   async generatePresignedUrl(s3Key, expiresIn = PRESIGNED_URL_EXPIRES) {
     const command = new GetObjectCommand({
@@ -145,12 +129,6 @@ const s3UploadService = {
 
   /**
    * objectExists()
-   *
-   * Checks if an object exists in S3 without downloading it.
-   * Used to verify uploads and prevent re-uploads.
-   *
-   * @param {string} s3Key
-   * @returns {boolean}
    */
   async objectExists(s3Key) {
     try {

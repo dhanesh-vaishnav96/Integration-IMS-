@@ -1,20 +1,19 @@
 /**
  * routes/webhookRoutes.js
  *
- * NOTE: validateWebhook (GET) must NOT use JSON body parser —
- * Graph sends raw text. receiveNotification (POST) uses JSON.
+ * Routes for Microsoft Graph webhook integration.
  */
 const express = require('express');
-const { validateWebhook, receiveNotification } = require('../controllers/webhookController');
-
 const router = express.Router();
+const webhookController = require('../controllers/webhookController');
 
-// GET /api/v1/webhooks/teams?validationToken=...
-// Called by Graph during subscription creation
-router.get('/teams', validateWebhook);
+// GET /api/v1/webhooks/health - Health check endpoint
+router.get('/health', webhookController.healthCheck);
 
-// POST /api/v1/webhooks/teams
-// Called by Graph when a meeting ends / recording is ready
-router.post('/teams', receiveNotification);
+// POST /api/v1/webhooks/graph - Main Graph webhook endpoint
+// Note: Graph API sends validation token on GET but notifications on POST.
+// However, the Graph subscription creation flow sends validationToken as a query param
+// on the POST request url. Therefore, this endpoint handles both.
+router.post('/graph', webhookController.handleGraphWebhook);
 
 module.exports = router;

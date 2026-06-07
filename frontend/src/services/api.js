@@ -30,6 +30,7 @@ export const interviewApi = {
 export const dashboardApi = {
   getDashboard: (candidateId) => api.get(`/dashboard/candidate/${candidateId}`),
   getAssetLinks: (candidateId, interviewId) => api.get(`/dashboard/candidate/${candidateId}/asset-links?interviewId=${interviewId}`),
+  getAssets: (interviewId) => api.get(`/interviews/${interviewId}/assets`),
 };
 
 export const teamsApi = {
