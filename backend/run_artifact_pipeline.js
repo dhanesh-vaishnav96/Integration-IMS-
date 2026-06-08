@@ -15,11 +15,12 @@ const { assetRepository } = require('./src/repositories');
 const { ASSET_STATUS }    = require('./src/constants');
 
 // ─── Known Interview Data (from DB + Graph) ──────────────────────────────────
-const INTERVIEW_ID         = '6adc4b28-12ca-4fa2-8603-4e47829512cc';
+// "Testing Purpose Automatic Recording" — the latest recorded interview
+const INTERVIEW_ID         = 'ed822590-2abc-490d-9a3c-7cb7673f32a4';
 const ORGANIZER_OBJECT_ID  = 'c94e5553-3965-412a-b328-c9fa31d925e6';
-// The TRUE onlineMeeting ID (resolved from joinUrl via Graph $filter)
-const ONLINE_MEETING_ID    = 'MSpjOTRlNTU1My0zOTY1LTQxMmEtYjMyOC1jOWZhMzFkOTI1ZTYqMCoqMTk6bWVldGluZ19OalZoTjJJMVpXVXROMkV5TlMwME9USmhMV0k1Tm1ZdE1XWXdNVGN6TldGalltRTlAdGhyZWFkLnYy';
-const CANDIDATE_ID         = null; // Will be fetched from DB
+const JOIN_URL             = 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_OWE5NjYxOWQtYWI1OS00YTQxLThlMDUtMTlkNWFiNTY0ZDg5%40thread.v2/0?context=%7b%22Tid%22%3a%2289bbc8b6-9f88-4e35-a3bd-15a8fa916d6d%22%2c%22Oid%22%3a%22c94e5553-3965-412a-b328-c9fa31d925e6%22%7d';
+// Will be resolved dynamically from JOIN_URL via Graph $filter
+let ONLINE_MEETING_ID      = null;
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
@@ -36,7 +37,7 @@ async function main() {
   console.log('📋 Step 1: Fetching interview record from DB...');
   const interview = await prisma.interview.findUnique({
     where: { id: INTERVIEW_ID },
-    select: { id: true, candidate_id: true, title: true, status: true }
+    select: { id: true, candidate_id: true, title: true, status: true, online_meeting_id: true }
   });
   
   if (!interview) {
@@ -44,8 +45,29 @@ async function main() {
     process.exit(1);
   }
   console.log(`✅ Interview: "${interview.title}" | candidate_id: ${interview.candidate_id}`);
+  console.log(`   online_meeting_id: ${interview.online_meeting_id}`);
 
   const candidateId = interview.candidate_id;
+
+  // ── Step 1B: Resolve the real onlineMeeting ID from joinUrl ─────────────
+  console.log('\n🔍 Step 1B: Resolving onlineMeeting ID from joinUrl...');
+  const client = graphClientFactory.getGraphClient(null);
+  try {
+    const filter = `JoinWebUrl eq '${JOIN_URL}'`;
+    const meetingRes = await client.api(`/users/${ORGANIZER_OBJECT_ID}/onlineMeetings`).filter(filter).get();
+    if (meetingRes.value && meetingRes.value.length > 0) {
+      ONLINE_MEETING_ID = meetingRes.value[0].id;
+      console.log(`✅ Resolved onlineMeeting ID: ${ONLINE_MEETING_ID}`);
+      console.log(`   recordAutomatically: ${meetingRes.value[0].recordAutomatically}`);
+    } else {
+      // Fall back to stored online_meeting_id
+      ONLINE_MEETING_ID = interview.online_meeting_id;
+      console.log(`⚠️  Filter returned no results. Using stored ID: ${ONLINE_MEETING_ID}`);
+    }
+  } catch (err) {
+    ONLINE_MEETING_ID = interview.online_meeting_id;
+    console.log(`⚠️  Filter failed (${err.message}). Using stored ID: ${ONLINE_MEETING_ID}`);
+  }
 
   // ── Step 2: Check Graph API for recordings ───────────────────────────────
   console.log('\n🎥 Step 2: Checking Graph API for recordings...');
@@ -53,7 +75,6 @@ async function main() {
   let recordingContentUrl = null;
 
   try {
-    const client = graphClientFactory.getGraphClient(null);
     const recordings = await client.api(
       `/users/${ORGANIZER_OBJECT_ID}/onlineMeetings/${ONLINE_MEETING_ID}/recordings`
     ).get();
