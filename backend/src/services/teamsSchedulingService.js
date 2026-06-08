@@ -49,9 +49,7 @@ const { HTTP_STATUS, INTERVIEW_STATUS } = require('../constants');
  * Format: "Interview: {CandidateName} — {JobRole}"
  */
 const buildMeetingSubject = (candidate, interview) => {
-  const name = candidate.name    || 'Candidate';
-  const role = candidate.job_role || interview.organizer_email || 'Interview';
-  return `Interview: ${name} — ${role}`;
+  return interview.title ? `IMS - Interview: ${interview.title}` : 'IMS - Interview';
 };
 
 /**
