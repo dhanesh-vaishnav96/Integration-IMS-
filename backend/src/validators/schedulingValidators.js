@@ -48,7 +48,7 @@ const createScheduledInterviewSchema = Joi.object({
   is_private: Joi.boolean().optional(),
   travel_buffer_minutes: Joi.number().integer().min(0).optional(),
   recurrence_rule: Joi.string().optional().allow(null),
-  organizer_email: Joi.string().email().lowercase().trim().required(),
+  organizer_email: Joi.string().email().lowercase().trim().optional(),
   department: Joi.string().optional().allow(''),
   round: Joi.number().integer().optional(),
 });

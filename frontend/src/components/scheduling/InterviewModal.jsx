@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import useSchedulingStore from '../../store/schedulingStore';
 import schedulingApi from '../../services/schedulingApi';
+import { teamsApi } from '../../services/api';
 import { X, AlertCircle, Plus, Trash2, Users, Video, Calendar, Clock, User, AlignLeft } from 'lucide-react';
 import { format, addHours } from 'date-fns';
 
@@ -137,7 +138,23 @@ const InterviewModal = () => {
         updateEvent(data.data);
       } else {
         const { data } = await schedulingApi.createInterview(payload);
-        addEvent(data.data.interview);
+        let newInterview = data.data.interview;
+        
+        // Auto-schedule Teams if meeting_provider is TEAMS
+        if (newInterview.meeting_provider === 'TEAMS') {
+          try {
+            const panelistsEmails = formData.participants.map(p => p.email);
+            const { data: teamsData } = await teamsApi.schedule(newInterview.id || newInterview._id, panelistsEmails);
+            if (teamsData.data) {
+              newInterview = { ...newInterview, ...teamsData.data };
+            }
+          } catch (teamsErr) {
+            console.error("Teams auto-schedule failed", teamsErr);
+            alert("Interview created, but automatic Teams scheduling failed. You can use the 'Schedule via Teams' button on the dashboard to try again.");
+          }
+        }
+        
+        addEvent(newInterview);
       }
       closeModal();
     } catch (err) {

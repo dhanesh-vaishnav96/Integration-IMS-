@@ -57,10 +57,10 @@ const Dashboard = () => {
     }
   };
 
-  const handleScheduleTeams = async (interviewId) => {
+  const handleScheduleTeams = async (interviewId, panelists = []) => {
     setScheduling(true);
     try {
-      await teamsApi.schedule(interviewId);
+      await teamsApi.schedule(interviewId, panelists);
       await fetchDashboard();
     } catch (err) {
       alert(`Scheduling failed: ${err?.response?.data?.message || err?.message}`);
@@ -144,7 +144,7 @@ const Dashboard = () => {
                         {!hasTeams ? (
                           <div className="flex flex-col items-end gap-2">
                             <button 
-                              onClick={() => handleScheduleTeams(interview._id || interview.id)}
+                              onClick={() => handleScheduleTeams(interview._id || interview.id, interview.participants?.map(p => p.email) || [])}
                               disabled={scheduling}
                               className="btn-primary"
                             >

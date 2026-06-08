@@ -115,6 +115,9 @@ const createScheduledInterview = asyncHandler(async (req, res) => {
   }
 
   interviewData.created_by = req.user?.email || 'system';
+  if (!interviewData.organizer_email) {
+    interviewData.organizer_email = process.env.TEAMS_ORGANIZER_EMAIL || 'nadeem.aehmad@kadellabs.com';
+  }
   const interview = await schedulingRepository.createWithParticipants(interviewData, participants);
 
   // Fire-and-forget: send invites + schedule reminders
