@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { candidateApi } from '../services/api';
 import { Link } from 'react-router-dom';
-import { UserPlus, Search, ChevronRight, X, Briefcase, Calendar as CalendarIcon, Users } from 'lucide-react';
+import { UserPlus, Search, ChevronRight, X, Briefcase, Calendar as CalendarIcon, Users, Trash2 } from 'lucide-react';
 
 const CandidateList = () => {
   const [candidates, setCandidates] = useState([]);
@@ -44,6 +44,18 @@ const CandidateList = () => {
       alert("Error creating candidate: " + (err.response?.data?.message || err.message));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteCandidate = async (id) => {
+    if (window.confirm("Are you sure you want to delete this candidate? This will cancel all scheduled interviews and cannot be undone.")) {
+      try {
+        await candidateApi.delete(id);
+        setLoading(true);
+        fetchCandidates();
+      } catch (err) {
+        alert("Error deleting candidate: " + (err.response?.data?.message || err.message));
+      }
     }
   };
 
@@ -135,13 +147,25 @@ const CandidateList = () => {
                       <span className="badge badge-info">Interviewing</span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <Link 
-                        to={`/dashboard/${c.id || c._id}`}
-                        className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-primary-600 hover:text-primary-800 hover:bg-primary-50 rounded-lg transition-colors"
-                      >
-                        Profile
-                        <ChevronRight className="w-4 h-4 ml-1" />
-                      </Link>
+                      <div className="flex items-center justify-end gap-2">
+                        <Link 
+                          to={`/dashboard/${c.id || c._id}`}
+                          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-primary-600 hover:text-primary-800 hover:bg-primary-50 rounded-lg transition-colors"
+                        >
+                          Profile
+                          <ChevronRight className="w-4 h-4 ml-1" />
+                        </Link>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCandidate(c.id || c._id);
+                          }}
+                          className="inline-flex items-center p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Delete Candidate"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
