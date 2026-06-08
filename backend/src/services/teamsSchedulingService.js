@@ -159,80 +159,105 @@ const teamsSchedulingService = {
       email
     ))];
 
-    const meetingPayload = { subject, startDateTime, endDateTime, attendees: uniqueAttendees };
-
-    logger.info(
-      `[TeamsScheduling] Creating Teams meeting | subject: "${subject}" | ` +
-      `start: ${startDateTime} | attendees: ${uniqueAttendees.length}`
-    );
-
-    // ── Step 4: Create Calendar Event with auto-generated Teams Meeting ───────
-    // We bypass /onlineMeetings due to Application Access Policy limitations
-    // and rely on Exchange Online to auto-generate the Teams link.
-    const eventPayload = {
-      subject,
-      start: { dateTime: startDateTime, timeZone: 'UTC' },
-      end: { dateTime: endDateTime, timeZone: 'UTC' },
-      location: { displayName: 'Microsoft Teams' },
-      attendees: uniqueAttendees.map(email => ({
-        emailAddress: { address: email },
-        type: 'required'
-      })),
-      isOnlineMeeting: true,
-      onlineMeetingProvider: 'teamsForBusiness',
-      showAs: 'busy'
-    };
-
+    // ── Step 4: Hybrid Teams Meeting Creation ─────────────────────────────────
+    // Strategy:
+    //   4A. Create Calendar Event with isOnlineMeeting=true → Exchange generates
+    //       a native Teams meeting with the purple "Join" button in Outlook/Teams.
+    //   4B. Immediately resolve the Exchange-generated meeting ID via $filter on joinUrl.
+    //   4C. PATCH that same meeting with recordAutomatically=true + allowTranscription=true.
+    //
+    // Result: Native calendar UX (Join button) + guaranteed auto-recording.
     let graphMeeting = {};
     let joinUrl = null;
     let eventId = null;
 
     try {
-      logger.info(`[TeamsScheduling] Requesting auto-generated Teams meeting via Calendar Event...`);
       const client = require('./msGraph/graphClientFactory').getGraphClient(userCacheKey);
-      
       const targetUser = process.env.TEAMS_ORGANIZER_OBJECT_ID;
-      if (!targetUser) throw new Error("TEAMS_ORGANIZER_OBJECT_ID is not configured. Server startup validation failed.");
+      if (!targetUser) throw new Error("TEAMS_ORGANIZER_OBJECT_ID is not configured.");
 
       const endpoint = userCacheKey ? '/me/calendar/events' : `/users/${targetUser}/calendar/events`;
-      
+
+      // ── 4A: Build event body ───────────────────────────────────────────────
+      const candidateName = candidate.name || 'Candidate';
+      const panelistName  = uniqueAttendees.filter(a => a !== candidate.email).join(', ') || 'Panelist';
+      const dateStr = new Date(startDateTime).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const timeStr = `${new Date(startDateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - ${new Date(endDateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+
+      const customHtml = `
+        <h2>Interview: ${interview.title || interview.round || 'Technical Interview'}</h2>
+        <p><strong>Candidate:</strong> ${candidateName}</p>
+        <p><strong>Panelist:</strong> ${panelistName}</p>
+        <p><strong>Date:</strong> ${dateStr}</p>
+        <p><strong>Time:</strong> ${timeStr}</p>
+        <p>Click <strong>Join Microsoft Teams Meeting</strong> above to join the interview.</p>
+      `;
+
+      const eventPayload = {
+        subject,
+        start:    { dateTime: startDateTime, timeZone: 'UTC' },
+        end:      { dateTime: endDateTime,   timeZone: 'UTC' },
+        location: { displayName: 'Microsoft Teams' },
+        attendees: uniqueAttendees.map(email => ({
+          emailAddress: { address: email },
+          type: 'required'
+        })),
+        isOnlineMeeting:        true,   // ← Enables native "Join" button in Outlook/Teams
+        onlineMeetingProvider:  'teamsForBusiness',
+        showAs:                 'busy',
+        body: { contentType: 'html', content: customHtml }
+      };
+
+      logger.info(`[TeamsScheduling] 4A: Creating Calendar Event with native Teams join button...`);
       const event = await client.api(endpoint).post(eventPayload);
       eventId = event.id;
-      
-      if (event.onlineMeeting && event.onlineMeeting.joinUrl) {
-        joinUrl = event.onlineMeeting.joinUrl;
-        graphMeeting = { id: event.onlineMeeting.id || eventId, ...event.onlineMeeting };
+      joinUrl  = event.onlineMeeting?.joinUrl || null;
 
-        // ── STEP 4B: Inject Clean HTML Description ──
-        logger.info(`[TeamsScheduling] Patching custom body into Event ID: ${eventId}`);
-        
-        const candidateName = candidate.name || 'Candidate';
-        const panelistName = uniqueAttendees.filter(a => a !== candidate.email).join(', ') || 'Panelist';
-        const dateStr = new Date(startDateTime).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-        const timeStr = `${new Date(startDateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - ${new Date(endDateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-        
-        const customHtml = `
-          <h2>Interview: ${interview.title || interview.round || 'Technical Interview'}</h2>
-          <p><strong>Candidate:</strong> ${candidateName}</p>
-          <p><strong>Panelist:</strong> ${panelistName}</p>
-          <p><strong>Date:</strong> ${dateStr}</p>
-          <p><strong>Time:</strong> ${timeStr}</p>
-          <p>Please join using the Teams Join button below.</p>
-          <p>
-            <a href="${joinUrl}" style="display:inline-block;padding:10px 20px;background-color:#5B5FC7;color:white;text-decoration:none;border-radius:5px;font-weight:bold;margin-top:10px;">
-              Join Meeting
-            </a>
-          </p>
-        `;
+      if (!joinUrl) {
+        logger.warn(`[TeamsScheduling] ⚠️ Exchange did not return a joinUrl. Meeting created without Teams link.`);
+        graphMeeting = { id: eventId };
+      } else {
+        logger.info(`[TeamsScheduling] ✅ Calendar event created. JoinUrl: ${joinUrl}`);
 
-        await client.api(`${endpoint}/${eventId}`).patch({
-          body: {
-            contentType: 'html',
-            content: customHtml
+        // ── 4B: Resolve the Exchange-generated onlineMeeting ID via filter ─────
+        let onlineMeetingId = null;
+        try {
+          logger.info(`[TeamsScheduling] 4B: Resolving onlineMeeting ID from joinUrl...`);
+          const filter = `JoinWebUrl eq '${joinUrl}'`;
+          const meetingRes = await client
+            .api(`/users/${targetUser}/onlineMeetings`)
+            .filter(filter)
+            .get();
+
+          if (meetingRes.value && meetingRes.value.length > 0) {
+            onlineMeetingId = meetingRes.value[0].id;
+            graphMeeting = { id: onlineMeetingId, ...meetingRes.value[0] };
+            logger.info(`[TeamsScheduling] ✅ Resolved onlineMeeting ID: ${onlineMeetingId}`);
+          } else {
+            logger.warn(`[TeamsScheduling] ⚠️ Could not resolve onlineMeeting from joinUrl. Recording patch skipped.`);
           }
-        });
+        } catch (filterErr) {
+          logger.warn(`[TeamsScheduling] ⚠️ onlineMeeting filter failed (may need retry): ${filterErr.message}`);
+        }
 
-        logger.info(`[GRAPH]
+        // ── 4C: PATCH the meeting with recordAutomatically=true ────────────────
+        if (onlineMeetingId) {
+          try {
+            logger.info(`[TeamsScheduling] 4C: Patching onlineMeeting with recordAutomatically=true...`);
+            await client.api(`/users/${targetUser}/onlineMeetings/${onlineMeetingId}`).patch({
+              recordAutomatically: true,
+              allowTranscription:  true,
+              allowRecording:      true,
+            });
+            logger.info(`[TeamsScheduling] ✅ recordAutomatically=true applied to meeting ${onlineMeetingId}`);
+          } catch (patchErr) {
+            // Non-fatal: meeting still works; just won't auto-record
+            logger.warn(`[TeamsScheduling] ⚠️ PATCH recordAutomatically failed: ${patchErr.message}`);
+          }
+        }
+      }
+
+      logger.info(`[GRAPH]
 Organizer: ${process.env.TEAMS_ORGANIZER_EMAIL}
 Organizer Object ID: ${process.env.TEAMS_ORGANIZER_OBJECT_ID}
 Endpoint: ${endpoint}
@@ -242,9 +267,6 @@ Online Meeting ID: ${graphMeeting.id}
 JoinUrl: ${joinUrl}
 Status: 201 Created
 Meeting Created Successfully`);
-      } else {
-        logger.warn(`[TeamsScheduling] ⚠️ Event created, but Exchange did not generate a Teams link.`);
-      }
 
     } catch (err) {
       logger.error(`[GRAPH] Calendar Teams Meeting generation failed: ${err.message}`);
