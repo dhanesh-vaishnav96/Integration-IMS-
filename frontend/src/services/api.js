@@ -21,6 +21,7 @@ export const candidateApi = {
   getAll: () => api.get('/candidates'),
   getById: (id) => api.get(`/candidates/${id}`),
   create: (candidateData) => api.post('/candidates', candidateData),
+  delete: (id) => api.delete(`/candidates/${id}`),
 };
 
 export const interviewApi = {

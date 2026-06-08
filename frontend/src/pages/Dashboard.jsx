@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
-import { dashboardApi, teamsApi, interviewApi } from '../services/api';
+import { useParams, useNavigate } from 'react-router-dom';
+import { dashboardApi, teamsApi, interviewApi, candidateApi } from '../services/api';
 import { format } from 'date-fns';
-import { Calendar, Video, FileText, Clock, Plus, X } from 'lucide-react';
+import { Calendar, Video, FileText, Clock, Plus, X, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { AssetCard } from '../components/dashboard/AssetCard';
@@ -13,6 +13,7 @@ function cn(...inputs) {
 
 const Dashboard = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [scheduling, setScheduling] = useState(false);
@@ -69,6 +70,17 @@ const Dashboard = () => {
     }
   };
 
+  const handleDeleteCandidate = async () => {
+    if (window.confirm("Are you sure you want to delete this candidate? This will cancel all scheduled interviews and cannot be undone.")) {
+      try {
+        await candidateApi.delete(id);
+        navigate('/');
+      } catch (err) {
+        alert(`Deletion failed: ${err?.response?.data?.message || err?.message}`);
+      }
+    }
+  };
+
   if (loading) return <div className="p-8 text-center text-slate-500 font-medium">Loading candidate dashboard...</div>;
   if (!data) return <div className="p-8 text-center text-rose-500 font-medium">Failed to load dashboard.</div>;
 
@@ -91,9 +103,14 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="text-right flex flex-col items-end space-y-4">
-            <button className="btn-primary flex items-center shadow-lg shadow-primary-500/20" onClick={() => setIsModalOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" /> Schedule Interview
-            </button>
+            <div className="flex gap-3">
+              <button className="btn-secondary flex items-center border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300" onClick={handleDeleteCandidate}>
+                <Trash2 className="w-4 h-4 mr-2" /> Delete Candidate
+              </button>
+              <button className="btn-primary flex items-center shadow-lg shadow-primary-500/20" onClick={() => setIsModalOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" /> Schedule Interview
+              </button>
+            </div>
           </div>
         </div>
       </div>
