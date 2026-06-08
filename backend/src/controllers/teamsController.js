@@ -116,4 +116,23 @@ const getSchedule = asyncHandler(async (req, res) => {
   return sendSuccess(res, 'Interview schedule fetched successfully.', result);
 });
 
-module.exports = { scheduleInterview, updateSchedule, cancelSchedule, getSchedule };
+/**
+ * POST /api/v1/teams/:id/artifacts/sync
+ *
+ * Forces the processingService to download recording & transcript and push to S3.
+ * :id = MongoDB interview _id
+ */
+const syncArtifacts = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const options = extractOptions(req);
+
+  logger.info(`[TeamsCtrl] Sync artifacts: ${id} | requestId: ${req.requestId}`);
+
+  const result = await teamsSchedulingService.syncMeetingArtifacts(id, options);
+
+  // We return accepted because this might take 5-30 mins due to graph delays if run immediately,
+  // but if the meeting ended a while ago, it could be fast.
+  return sendSuccess(res, 'Artifact synchronization triggered.', result);
+});
+
+module.exports = { scheduleInterview, updateSchedule, cancelSchedule, getSchedule, syncArtifacts };

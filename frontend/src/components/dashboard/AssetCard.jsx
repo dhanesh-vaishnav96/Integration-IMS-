@@ -3,12 +3,32 @@ import { Video, FileText, AlertCircle, RefreshCw } from 'lucide-react';
 import { AssetStatusBadge } from './AssetStatusBadge';
 import { RecordingPlayer } from './RecordingPlayer';
 import { TranscriptViewer } from './TranscriptViewer';
-import { dashboardApi } from '../../services/api';
+import { dashboardApi, teamsApi } from '../../services/api';
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs) {
+  return twMerge(clsx(inputs));
+}
 
 export const AssetCard = ({ interviewId }) => {
   const [assets, setAssets] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await teamsApi.syncArtifacts(interviewId);
+      // It might take time, but we fetch immediately in case
+      await fetchAssets();
+    } catch (err) {
+      alert(`Sync failed: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const fetchAssets = async () => {
     try {
@@ -71,7 +91,17 @@ export const AssetCard = ({ interviewId }) => {
 
   return (
     <div className="mt-7 pt-7 border-t border-borderSoft">
-      <h4 className="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">Asset Status</h4>
+      <div className="flex justify-between items-center mb-4">
+        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Asset Status</h4>
+        <button 
+          onClick={handleSync} 
+          disabled={syncing}
+          className="btn-secondary text-[12px] py-1.5 px-3 flex items-center shadow-sm"
+        >
+          <RefreshCw className={cn("w-3 h-3 mr-2", syncing && "animate-spin")} />
+          {syncing ? 'Syncing...' : 'Sync Recording & Transcript'}
+        </button>
+      </div>
       
       {/* Asset Status Panel */}
       <div className="bg-slate-50 rounded-[12px] p-4 border border-slate-200 mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">

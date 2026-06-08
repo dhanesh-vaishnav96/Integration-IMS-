@@ -34,8 +34,9 @@ export const dashboardApi = {
 };
 
 export const teamsApi = {
-  schedule: (interviewId) => api.post('/teams/schedule', { interview_id: interviewId }),
+  schedule: (interviewId, panelists = []) => api.post('/teams/schedule', { interview_id: interviewId, panelists }),
   cancel: (interviewId) => api.delete(`/teams/${interviewId}`),
+  syncArtifacts: (interviewId) => api.post(`/teams/${interviewId}/artifacts/sync`),
 };
 
 export default api;

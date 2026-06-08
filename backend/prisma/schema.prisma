@@ -113,6 +113,8 @@ model Interview {
   travel_buffer_minutes   Int               @default(0)
   // Scheduling times  
   organizer_email         String            @db.VarChar(255)
+  organizer_object_id     String?           @db.VarChar(100)
+  graph_meeting_created_at DateTime?
   interviewer_email       String?           @db.VarChar(255)
   scheduled_time          DateTime
   duration_minutes        Int               @default(60)

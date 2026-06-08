@@ -7,12 +7,17 @@
 const interviewService = require('../services/interviewService');
 const assetService = require('../services/assetService');
 const asyncHandler = require('../utils/asyncHandler');
+const AppError = require('../utils/AppError');
 const { sendSuccess, sendCreated, sendNoContent } = require('../helpers/responseHelper');
 
 /**
  * POST /api/v1/interviews
  */
 const createInterview = asyncHandler(async (req, res) => {
+  req.body.organizer_email = process.env.TEAMS_ORGANIZER_EMAIL;
+  if (!req.body.organizer_email) {
+    throw new AppError('Server configuration error: TEAMS_ORGANIZER_EMAIL is not set.', 500);
+  }
   const interview = await interviewService.createInterview(req.body, req.requestId);
   return sendCreated(res, 'Interview scheduled successfully.', interview);
 });

@@ -21,8 +21,7 @@ const Dashboard = () => {
   const [formData, setFormData] = useState({
     scheduled_time: '',
     duration_minutes: 60,
-    organizer_email: 'alex.recruiter@kadellabs.com',
-    interviewer_email: 'alex.recruiter@kadellabs.com'
+    panelist_emails: ''
   });
 
   const fetchDashboard = useCallback(async () => {
@@ -48,8 +47,6 @@ const Dashboard = () => {
         candidate_id: id,
         scheduled_time: new Date(formData.scheduled_time).toISOString(),
         duration_minutes: Number(formData.duration_minutes),
-        organizer_email: formData.organizer_email,
-        interviewer_email: formData.interviewer_email
       });
       setIsModalOpen(false);
       await fetchDashboard();
@@ -145,18 +142,31 @@ const Dashboard = () => {
                         </div>
                         
                         {!hasTeams ? (
-                          <button 
-                            onClick={() => handleScheduleTeams(interview._id || interview.id)}
-                            disabled={scheduling}
-                            className="btn-primary"
-                          >
-                            <Video className="w-4 h-4 mr-2" />
-                            {scheduling ? 'Scheduling...' : 'Schedule via Teams'}
-                          </button>
+                          <div className="flex flex-col items-end gap-2">
+                            <button 
+                              onClick={() => handleScheduleTeams(interview._id || interview.id)}
+                              disabled={scheduling}
+                              className="btn-primary"
+                            >
+                              <Video className="w-4 h-4 mr-2" />
+                              {scheduling ? 'Scheduling...' : 'Schedule via Teams'}
+                            </button>
+                            <span className="text-[10px] text-slate-400 italic max-w-[200px] text-right">
+                              Note: Automatic recording requires Teams meeting policy configuration.
+                            </span>
+                          </div>
                         ) : (
-                          <a href={interview.meeting_join_url} target="_blank" rel="noreferrer" className="btn-secondary text-[#5B5FC7] hover:text-[#4a4ea8] hover:bg-[#5B5FC7]/10 border-[#5B5FC7]/20 flex items-center gap-2">
-                            <Video className="w-4 h-4" /> Join Meeting
-                          </a>
+                          <div className="flex flex-col items-end gap-2">
+                            <button 
+                              onClick={() => window.open(interview.meeting_join_url, '_blank')} 
+                              className="btn-primary shadow-md flex justify-center items-center py-2.5 px-6 font-bold tracking-wider uppercase bg-[#5B5FC7] hover:bg-[#4a4ea8]"
+                            >
+                              JOIN MEETING
+                            </button>
+                            <span className="text-[10px] text-slate-400 italic max-w-[200px] text-right">
+                              Automatic recording depends on your IT Teams Policy.
+                            </span>
+                          </div>
                         )}
                       </div>
 
@@ -191,12 +201,8 @@ const Dashboard = () => {
                 <input required type="number" step="15" className="input-field" value={formData.duration_minutes} onChange={e => setFormData({...formData, duration_minutes: e.target.value})} />
               </div>
               <div>
-                <label className="block text-[13px] font-semibold text-slate-700 mb-1.5">Organizer Email</label>
-                <input required type="email" className="input-field" value={formData.organizer_email} onChange={e => setFormData({...formData, organizer_email: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-[13px] font-semibold text-slate-700 mb-1.5">Interviewer Email</label>
-                <input required type="email" className="input-field" value={formData.interviewer_email} onChange={e => setFormData({...formData, interviewer_email: e.target.value})} />
+                <label className="block text-[13px] font-semibold text-slate-700 mb-1.5">Additional Panelist Emails (comma separated)</label>
+                <input type="text" placeholder="e.g. Achyut.Pancholi@kadellabs.com" className="input-field" value={formData.panelist_emails || ''} onChange={e => setFormData({...formData, panelist_emails: e.target.value})} />
               </div>
               <div className="pt-4 flex justify-end gap-3 border-t border-borderSoft mt-4">
                 <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>

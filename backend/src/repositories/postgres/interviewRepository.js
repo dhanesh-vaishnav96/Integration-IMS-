@@ -215,8 +215,13 @@ const interviewRepository = {
         where: { id: existing.id },
         data: {
           teams_meeting_id:       teamsData.teams_meeting_id,
+          online_meeting_id:      teamsData.online_meeting_id,
+          graph_event_id:         teamsData.graph_event_id,
           meeting_join_url:       teamsData.meeting_join_url,
           normalized_meeting_key: normalizedKey,
+          organizer_email:        teamsData.organizer_email,
+          organizer_object_id:    teamsData.organizer_object_id,
+          graph_meeting_created_at: teamsData.graph_meeting_created_at ? new Date(teamsData.graph_meeting_created_at) : undefined,
           ...(teamsData.status && { status: teamsData.status }),
           updated_by:             teamsData.updatedBy ?? 'system',
           updated_at:             new Date(),

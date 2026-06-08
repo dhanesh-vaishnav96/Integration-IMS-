@@ -121,13 +121,12 @@ const EventDetailDrawer = () => {
                 <p className="text-[15px] font-semibold text-slate-800">Microsoft Teams Meeting</p>
                 {event.meeting_join_url ? (
                   <div className="flex flex-wrap items-center gap-4 mt-1.5">
-                    <a 
-                      href={event.meeting_join_url} 
-                      target="_blank" rel="noopener noreferrer"
-                      className="text-[14px] text-[#5B5FC7] hover:text-[#4a4ea8] hover:underline flex items-center gap-1.5 font-semibold"
+                    <button 
+                      onClick={() => window.open(event.meeting_join_url, '_blank')} 
+                      className="btn-primary shadow-md flex justify-center items-center py-2 px-5 font-bold tracking-wider uppercase bg-[#5B5FC7] hover:bg-[#4a4ea8] text-xs text-white rounded-md"
                     >
-                      Join Meeting <ExternalLink className="w-4 h-4" />
-                    </a>
+                      <Video className="w-4 h-4 mr-2" /> JOIN MEETING
+                    </button>
                     <button 
                       onClick={handleCopyLink}
                       className="text-[13px] font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1.5 transition"

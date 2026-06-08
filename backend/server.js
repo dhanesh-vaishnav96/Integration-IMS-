@@ -47,8 +47,28 @@ const io = new Server(httpServer, {
 // Inject io into WebSocketService
 WebSocketService.init(io);
 
-// ─── Step 4: Start HTTP Server ──────────────────────────────────────────────
-httpServer.listen(config.port, () => {
+// ─── Step 4: Validate Teams Organizer & Start HTTP Server ─────────────────────
+const { getGraphClient } = require('./src/services/msGraph/graphClientFactory');
+
+async function validateTeamsOrganizer() {
+  const email = process.env.TEAMS_ORGANIZER_EMAIL;
+  if (!email) {
+    logger.error('[STARTUP ERROR] TEAMS_ORGANIZER_EMAIL is not set in .env');
+    process.exit(1);
+  }
+  try {
+    const client = getGraphClient();
+    const user = await client.api(`/users/${email}`).get();
+    process.env.TEAMS_ORGANIZER_OBJECT_ID = user.id;
+    logger.info(`[STARTUP] ✅ Teams Organizer validated: ${user.displayName} (${user.id})`);
+  } catch (err) {
+    logger.error(`[STARTUP ERROR] TEAMS_ORGANIZER_EMAIL (${email}) does not exist in Microsoft 365 Tenant. Graph Error: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+validateTeamsOrganizer().then(() => {
+  httpServer.listen(config.port, () => {
   logger.info(`🚀 Server is running in [${config.env}] mode on port ${config.port}`);
   logger.info(`📡 Health Check: http://localhost:${config.port}/api/v1/health`);
   logger.info(`📅 Scheduling: http://localhost:${config.port}/api/v1/scheduling/calendar`);
@@ -70,6 +90,7 @@ httpServer.listen(config.port, () => {
     sqsWorker.start();
     subscriptionRenewalJob.start();
   }
+});
 });
 
 // ─── Graceful Shutdown ──────────────────────────────────────────────────────

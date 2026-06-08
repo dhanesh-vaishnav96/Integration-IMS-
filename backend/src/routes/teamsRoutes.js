@@ -64,4 +64,11 @@ router.delete(
   teamsController.cancelSchedule
 );
 
+// POST /api/v1/teams/:id/artifacts/sync — Sync recording and transcript to S3
+router.post(
+  '/:id/artifacts/sync',
+  validateParams(interviewIdParamSchema),
+  teamsController.syncArtifacts
+);
+
 module.exports = router;

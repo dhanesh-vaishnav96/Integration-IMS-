@@ -100,15 +100,12 @@ const AgendaView = ({ events, onEventClick }) => {
                           <Clock className="w-3 h-3" /> {startFmt} – {endFmt} ({event.duration_minutes || 60}m)
                         </span>
                         {event.meeting_join_url && (
-                          <a
-                            href={event.meeting_join_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-primary-400 flex items-center gap-1 hover:text-primary-300"
-                            onClick={e => e.stopPropagation()}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); window.open(event.meeting_join_url, '_blank'); }}
+                            className="btn-primary shadow-md flex justify-center items-center py-1.5 px-3 font-bold tracking-wider uppercase bg-[#5B5FC7] hover:bg-[#4a4ea8] text-[10px] text-white rounded"
                           >
-                            <Video className="w-3 h-3" /> Join Teams
-                          </a>
+                            <Video className="w-3 h-3 mr-1" /> JOIN MEETING
+                          </button>
                         )}
                         {event.round && (
                           <span className="text-xs text-slate-500">Round {event.round}</span>

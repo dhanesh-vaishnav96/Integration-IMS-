@@ -36,6 +36,7 @@
 
 const teamsGraphService       = require('./msGraph/teamsGraphService');
 const calendarBlockingService = require('./msGraph/calendarBlockingService'); // ← Phase 1
+const processingService       = require('./processingService');
 const { interviewRepository, candidateRepository } = require('../repositories');
 const AppError  = require('../utils/AppError');
 const logger    = require('../config/logger');
@@ -152,8 +153,13 @@ const teamsSchedulingService = {
     if (interview.interviewer_email)    attendeeEmails.push(interview.interviewer_email);
     if (panelists.length > 0)           attendeeEmails.push(...panelists);
 
-    // Deduplicate attendees
-    const uniqueAttendees = [...new Set(attendeeEmails)];
+    // Deduplicate attendees, excluding organizer
+    const uniqueAttendees = [...new Set(attendeeEmails.filter(email => 
+      email !== options.organizerUserId && 
+      email !== process.env.TEAMS_ORGANIZER_EMAIL && 
+      email !== process.env.TEAMS_ORGANIZER_OBJECT_ID &&
+      email
+    ))];
 
     const meetingPayload = { subject, startDateTime, endDateTime, attendees: uniqueAttendees };
 
@@ -162,47 +168,101 @@ const teamsSchedulingService = {
       `start: ${startDateTime} | attendees: ${uniqueAttendees.length}`
     );
 
-    // ── Step 4: Create Teams meeting via Graph API ─────────────────────────────
-    // If this fails, we abort the entire flow (no partial state saved)
-    const graphMeeting = await teamsGraphService.createMeeting(
-      meetingPayload,
-      organizerUserId,
-      userCacheKey
-    );
+    // ── Step 4: Create Calendar Event with auto-generated Teams Meeting ───────
+    // We bypass /onlineMeetings due to Application Access Policy limitations
+    // and rely on Exchange Online to auto-generate the Teams link.
+    const eventPayload = {
+      subject,
+      start: { dateTime: startDateTime, timeZone: 'UTC' },
+      end: { dateTime: endDateTime, timeZone: 'UTC' },
+      location: { displayName: 'Microsoft Teams' },
+      attendees: uniqueAttendees.map(email => ({
+        emailAddress: { address: email },
+        type: 'required'
+      })),
+      isOnlineMeeting: true,
+      onlineMeetingProvider: 'teamsForBusiness',
+      showAs: 'busy'
+    };
 
-    const joinUrl = graphMeeting.joinUrl || graphMeeting.joinWebUrl;
-    logger.info(
-      `[TeamsScheduling] Teams meeting created | graphId: ${graphMeeting.id} | joinUrl: ${joinUrl ? 'present' : 'MISSING'}`
-    );
+    let graphMeeting = {};
+    let joinUrl = null;
+    let eventId = null;
 
-    // ── Step 4b: Block panelist calendars (best-effort, does NOT abort on failure) ──
-    let calendarBlockingResults = [];
-    if (panelists.length > 0) {
-      logger.info(`[TeamsScheduling] Starting calendar blocking for ${panelists.length} panelist(s)...`);
+    try {
+      logger.info(`[TeamsScheduling] Requesting auto-generated Teams meeting via Calendar Event...`);
+      const client = require('./msGraph/graphClientFactory').getGraphClient(userCacheKey);
+      
+      const targetUser = process.env.TEAMS_ORGANIZER_OBJECT_ID;
+      if (!targetUser) throw new Error("TEAMS_ORGANIZER_OBJECT_ID is not configured. Server startup validation failed.");
 
-      calendarBlockingResults = await calendarBlockingService.blockPanelistCalendars(
-        panelists,
-        {
-          subject,
-          startDateTime,
-          endDateTime,
-          joinUrl,
-          organizerEmail: interview.organizer_email,
-        },
-        userCacheKey
-      );
-    } else {
-      logger.info('[TeamsScheduling] No panelists supplied — calendar blocking skipped.');
+      const endpoint = userCacheKey ? '/me/calendar/events' : `/users/${targetUser}/calendar/events`;
+      
+      const event = await client.api(endpoint).post(eventPayload);
+      eventId = event.id;
+      
+      if (event.onlineMeeting && event.onlineMeeting.joinUrl) {
+        joinUrl = event.onlineMeeting.joinUrl;
+        graphMeeting = { id: event.onlineMeeting.id || eventId, ...event.onlineMeeting };
+
+        // ── STEP 4B: Inject Clean HTML Description ──
+        logger.info(`[TeamsScheduling] Patching custom body into Event ID: ${eventId}`);
+        
+        const candidateName = candidate.name || 'Candidate';
+        const panelistName = uniqueAttendees.filter(a => a !== candidate.email).join(', ') || 'Panelist';
+        const dateStr = new Date(startDateTime).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const timeStr = `${new Date(startDateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - ${new Date(endDateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+        
+        const customHtml = `
+          <h2>Interview: ${interview.title || interview.round || 'Technical Interview'}</h2>
+          <p><strong>Candidate:</strong> ${candidateName}</p>
+          <p><strong>Panelist:</strong> ${panelistName}</p>
+          <p><strong>Date:</strong> ${dateStr}</p>
+          <p><strong>Time:</strong> ${timeStr}</p>
+          <p>Please join using the Teams Join button below.</p>
+          <p>
+            <a href="${joinUrl}" style="display:inline-block;padding:10px 20px;background-color:#5B5FC7;color:white;text-decoration:none;border-radius:5px;font-weight:bold;margin-top:10px;">
+              Join Meeting
+            </a>
+          </p>
+        `;
+
+        await client.api(`${endpoint}/${eventId}`).patch({
+          body: {
+            contentType: 'html',
+            content: customHtml
+          }
+        });
+
+        logger.info(`[GRAPH]
+Organizer: ${process.env.TEAMS_ORGANIZER_EMAIL}
+Organizer Object ID: ${process.env.TEAMS_ORGANIZER_OBJECT_ID}
+Endpoint: ${endpoint}
+Attendees: ${uniqueAttendees.join(', ')}
+Event ID: ${eventId}
+Online Meeting ID: ${graphMeeting.id}
+JoinUrl: ${joinUrl}
+Status: 201 Created
+Meeting Created Successfully`);
+      } else {
+        logger.warn(`[TeamsScheduling] ⚠️ Event created, but Exchange did not generate a Teams link.`);
+      }
+
+    } catch (err) {
+      logger.error(`[GRAPH] Calendar Teams Meeting generation failed: ${err.message}`);
+      throw new AppError(`Graph Calendar Meeting Creation Failed: ${err.message}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
 
     // ── Step 5: Persist Teams meeting data to RDS ─────────────────────────────
-    // This is the critical write. If it fails, the Teams meeting exists but is not
-    // linked in our DB. The client can retry, and the service will detect the
-    // existing teams_meeting_id on Graph and re-link it manually if needed.
     const teamsData = {
-      teams_meeting_id: graphMeeting.id,
-      meeting_join_url: joinUrl,
-      status:           INTERVIEW_STATUS.SCHEDULED,
+      teams_meeting_id:         graphMeeting.id || eventId,
+      online_meeting_id:        graphMeeting.id,
+      meeting_join_url:         joinUrl,
+      graph_event_id:           eventId,
+      status:                   INTERVIEW_STATUS.SCHEDULED,
+      organizer_email:          process.env.TEAMS_ORGANIZER_EMAIL,
+      organizer_object_id:      process.env.TEAMS_ORGANIZER_OBJECT_ID,
+      graph_meeting_created_at: new Date().toISOString(),
       updatedBy,
     };
 
@@ -212,7 +272,7 @@ const teamsSchedulingService = {
     );
 
     logger.info(
-      `[TeamsScheduling] ✅ Interview ${interviewId} linked to Teams meeting: ${graphMeeting.id}`
+      `[TeamsScheduling] ✅ Interview ${interviewId} linked to auto-generated Teams meeting: ${teamsData.teams_meeting_id}`
     );
 
     // ── Step 6: Return unified result ─────────────────────────────────────────
@@ -224,8 +284,7 @@ const teamsSchedulingService = {
         subject:       graphMeeting.subject,
         startDateTime: graphMeeting.startDateTime,
         endDateTime:   graphMeeting.endDateTime,
-      },
-      calendarBlocking: calendarBlockingResults,
+      }
     };
   },
 
@@ -320,7 +379,23 @@ const teamsSchedulingService = {
       throw new AppError('Interview is already cancelled.', HTTP_STATUS.BAD_REQUEST);
     }
 
-    if (interview.teams_meeting_id) {
+    if (interview.graph_event_id) {
+      try {
+        const client = require('./msGraph/graphClientFactory').getGraphClient(userCacheKey);
+        const targetUser = organizerUserId || interview.organizer_email;
+        const endpoint = userCacheKey ? `/me/calendar/events/${interview.graph_event_id}` : `/users/${targetUser}/calendar/events/${interview.graph_event_id}`;
+        
+        await client.api(endpoint).delete();
+        logger.info(`[TeamsScheduling] Calendar event deleted: ${interview.graph_event_id}`);
+      } catch (err) {
+        if (err.statusCode === 404) {
+          logger.warn(`[TeamsScheduling] Graph event already deleted: ${interview.graph_event_id}`);
+        } else {
+          logger.error(`[TeamsScheduling] Failed to delete calendar event: ${err.message}`);
+          // Don't throw, let DB update proceed so the interview is marked cancelled locally
+        }
+      }
+    } else if (interview.teams_meeting_id) {
       try {
         await teamsGraphService.cancelMeeting(
           interview.teams_meeting_id,
@@ -328,13 +403,10 @@ const teamsSchedulingService = {
           userCacheKey
         );
       } catch (err) {
-        // 404 means the meeting was already deleted from Teams — still mark DB as cancelled
         if (err.statusCode === 404) {
-          logger.warn(
-            `[TeamsScheduling] Graph meeting already deleted: ${interview.teams_meeting_id}`
-          );
+          logger.warn(`[TeamsScheduling] Graph meeting already deleted: ${interview.teams_meeting_id}`);
         } else {
-          throw err;
+          // Don't throw, let DB update proceed
         }
       }
     }
@@ -384,6 +456,43 @@ const teamsSchedulingService = {
     }
 
     return { interview, teams: teamsMeeting };
+  },
+
+  /**
+   * syncMeetingArtifacts()
+   *
+   * Triggers the background artifact processing (recording/transcript download to S3).
+   *
+   * @param {string} interviewId
+   * @param {Object} options
+   */
+  async syncMeetingArtifacts(interviewId, options = {}) {
+    const { userCacheKey = null } = options;
+    // Fall back to env or email
+    const organizerUserId = resolveOrganizerUserId(options.organizerUserId);
+
+    const interview = await interviewRepository.findById(interviewId);
+    if (!interview) throw new AppError('Interview not found.', HTTP_STATUS.NOT_FOUND);
+    if (!interview.teams_meeting_id) {
+      throw new AppError('Interview does not have an associated Teams meeting to sync.', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const candidateId = interview.candidate_id?._id?.toString() || interview.candidate_id?.toString();
+
+    const mapping = {
+      interviewId: interview._id.toString(),
+      candidateId: candidateId,
+      meetingId: interview.teams_meeting_id
+    };
+
+    logger.info(`[TeamsScheduling] Triggering manual artifact sync for interview ${interviewId}`);
+
+    // Fire and forget: the processArtifacts method has its own robust p-retry logic
+    processingService.processArtifacts('manual-sync', mapping, organizerUserId, userCacheKey)
+      .then(() => logger.info(`[TeamsScheduling] Manual artifact sync finished successfully for ${interviewId}`))
+      .catch(err => logger.error(`[TeamsScheduling] Manual artifact sync failed for ${interviewId}: ${err.message}`));
+
+    return { status: 'QUEUED', interviewId, message: 'Artifact synchronization has been scheduled in the background.' };
   },
 };
 

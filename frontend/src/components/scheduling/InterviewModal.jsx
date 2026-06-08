@@ -130,7 +130,6 @@ const InterviewModal = () => {
         is_private: false,
         travel_buffer_minutes: 0,
         recurrence_rule: null,
-        organizer_email: 'alex.recruiter@kadellabs.com',
       };
       
       if (modalState.mode === 'edit') {
