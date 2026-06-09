@@ -64,7 +64,8 @@ const upsertSkills = async (candidateId, skillNames = []) => {
       });
     }
   }, {
-    timeout: 15000 // 15 seconds to allow for slow remote RDS connections
+    maxWait: 15000,
+    timeout: 20000 // allow for slow remote RDS connections
   });
 };
 
@@ -110,7 +111,13 @@ const candidateRepository = {
         skip,
         take: Number(limit),
         orderBy,
-        include: { skills: { include: { skill: true } } },
+        include: { 
+          skills: { include: { skill: true } },
+          interviews: { 
+            include: { asset: true },
+            orderBy: { created_at: 'desc' }
+          }
+        },
       }),
       prismaRead.candidate.count({ where }),
     ]);

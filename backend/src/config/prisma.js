@@ -27,13 +27,17 @@ if (!writeUrl) {
   throw new Error('[Prisma] DATABASE_URL is not set. Cannot initialize PrismaClient.');
 }
 
+const { Pool } = require('pg');
+
 // ─── Client Factory ───────────────────────────────────────────────────────────
 const createClient = (connectionString, label) => {
-  // PrismaPg accepts pg Pool options — enable SSL for AWS RDS
-  const adapter = new PrismaPg({
+  // PrismaPg requires a pg Pool instance
+  const pool = new Pool({
     connectionString,
     ssl: { rejectUnauthorized: false }, // RDS uses self-signed cert in dev
+    max: 25,                            // Increase pool size to handle high concurrent RTT latency
   });
+  const adapter = new PrismaPg(pool);
 
   const client = new PrismaClient({
     adapter,

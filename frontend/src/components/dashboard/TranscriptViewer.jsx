@@ -1,20 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { FileText, AlertCircle, RefreshCw } from 'lucide-react';
-import axios from 'axios';
+import api from '../../services/api';
 
-export const TranscriptViewer = ({ url, status }) => {
+export const TranscriptViewer = ({ url, status, interviewId }) => {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (status === 'UPLOADED' && url) {
+    // If it's uploaded and we have the interviewId, fetch it from our backend proxy
+    if (status === 'UPLOADED' && interviewId) {
       setLoading(true);
       setError(false);
-      axios.get(url)
+      api.get(`/interviews/${interviewId}/assets/transcript/content`)
         .then(res => {
-          // If it's a VTT file or raw text, just display it. 
-          // If it's JSON from Graph, we might stringify it nicely.
           if (typeof res.data === 'object') {
             setContent(JSON.stringify(res.data, null, 2));
           } else {
@@ -23,12 +22,12 @@ export const TranscriptViewer = ({ url, status }) => {
           setLoading(false);
         })
         .catch(err => {
-          console.error('Failed to load transcript text', err);
+          console.error('Failed to load transcript text via API', err);
           setError(true);
           setLoading(false);
         });
     }
-  }, [url, status]);
+  }, [status, interviewId]);
 
   if (status === 'FAILED') {
     return (

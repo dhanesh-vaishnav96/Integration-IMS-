@@ -219,7 +219,7 @@ const schedulingRepository = {
         where: { id: interview.id },
         include: WITH_FULL_DETAILS,
       });
-    }, { timeout: 15000 });
+    }, { maxWait: 15000, timeout: 20000 });
   },
 
   /**
@@ -275,7 +275,7 @@ const schedulingRepository = {
       }
 
       return tx.interview.findUnique({ where: { id }, include: WITH_FULL_DETAILS });
-    }, { timeout: 15000 });
+    }, { maxWait: 15000, timeout: 20000 });
   },
 
   /**

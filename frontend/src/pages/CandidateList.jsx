@@ -23,6 +23,10 @@ const CandidateList = () => {
 
   useEffect(() => {
     fetchCandidates();
+    const interval = setInterval(() => {
+      fetchCandidates();
+    }, 10000);
+    return () => clearInterval(interval);
   }, [fetchCandidates]);
 
   const handleCreate = async (e) => {
@@ -87,10 +91,6 @@ const CandidateList = () => {
               className="input-field pl-10 bg-white"
             />
           </div>
-          <div className="flex gap-2">
-            <button className="btn-secondary py-2 text-sm"><Briefcase className="w-4 h-4 mr-2 text-slate-400"/>Role</button>
-            <button className="btn-secondary py-2 text-sm"><CalendarIcon className="w-4 h-4 mr-2 text-slate-400"/>Stage</button>
-          </div>
         </div>
 
         {loading ? (
@@ -144,7 +144,39 @@ const CandidateList = () => {
                       {c.years_of_experience} yrs
                     </td>
                     <td className="px-6 py-4">
-                      <span className="badge badge-info">Interviewing</span>
+                      {(() => {
+                        if (!c.interviews || c.interviews.length === 0) {
+                          return <span className="badge badge-slate bg-slate-100 text-slate-700">No Interview</span>;
+                        }
+                        const latest = c.interviews[0];
+                        
+                        let statusText = 'Interview Pending';
+                        let badgeClass = 'badge-info';
+
+                        if (latest.status === 'COMPLETED') {
+                          statusText = 'Interview Completed';
+                          badgeClass = 'bg-yellow-100 text-yellow-800 border-yellow-200';
+                          
+                          if (latest.asset) {
+                            if (latest.asset.recording_status === 'PROCESSING' || latest.asset.transcript_status === 'PROCESSING') {
+                              statusText = 'Generating Transcript & Recording...';
+                              badgeClass = 'bg-purple-100 text-purple-800 border-purple-200';
+                            } else if (latest.asset.recording_status === 'UPLOADED' && latest.asset.transcript_status === 'UPLOADED') {
+                              statusText = 'Transcript & Recording Uploaded to S3';
+                              badgeClass = 'badge-success';
+                            }
+                          }
+                        } else if (latest.status === 'CANCELLED') {
+                          statusText = 'Cancelled';
+                          badgeClass = 'badge-error';
+                        }
+
+                        return (
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border ${badgeClass}`}>
+                            {statusText}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">

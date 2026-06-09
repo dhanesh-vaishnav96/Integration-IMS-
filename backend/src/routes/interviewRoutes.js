@@ -58,5 +58,11 @@ router.get(
   validateParams(interviewIdParamSchema),
   interviewController.getInterviewAssets
 );
+// GET /api/v1/interviews/:id/assets/transcript/content
+router.get(
+  '/:id/assets/transcript/content',
+  validateParams(interviewIdParamSchema),
+  interviewController.getTranscriptContent
+);
 
 module.exports = router;

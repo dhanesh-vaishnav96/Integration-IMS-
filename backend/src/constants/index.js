@@ -36,10 +36,24 @@ const ASSET_STATUS = {
  * Canonical S3 key generators.
  * Enforces the folder structure: {candidateId}/{interviewId}/artifact
  */
+const sanitize = (str) => str.replace(/[^a-zA-Z0-9]/g, '_');
+
 const S3_PATHS = {
-  RECORDING: (candidateId, interviewId) => `${candidateId}/${interviewId}/recording.mp4`,
-  TRANSCRIPT: (candidateId, interviewId) => `${candidateId}/${interviewId}/transcript.vtt`,
-  FOLDER: (candidateId, interviewId) => `${candidateId}/${interviewId}/`,
+  RECORDING: (candidateId, interviewId, candidateName = null, title = null) => {
+    const safeName = candidateName ? sanitize(candidateName) : candidateId;
+    const safeTitle = title ? sanitize(title) : interviewId;
+    return `${safeName}/${safeTitle}/recording.mp4`;
+  },
+  TRANSCRIPT: (candidateId, interviewId, candidateName = null, title = null) => {
+    const safeName = candidateName ? sanitize(candidateName) : candidateId;
+    const safeTitle = title ? sanitize(title) : interviewId;
+    return `${safeName}/${safeTitle}/transcript.vtt`;
+  },
+  FOLDER: (candidateId, interviewId, candidateName = null, title = null) => {
+    const safeName = candidateName ? sanitize(candidateName) : candidateId;
+    const safeTitle = title ? sanitize(title) : interviewId;
+    return `${safeName}/${safeTitle}/`;
+  },
 };
 
 module.exports = {

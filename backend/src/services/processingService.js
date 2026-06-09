@@ -8,14 +8,14 @@
  * 404 for artifacts immediately after a meeting ends. Artifacts can take
  * anywhere from 5 to 60+ minutes to become available.
  */
-const pRetry = require('p-retry');
-const { assetRepository } = require('../repositories');
+const pRetry = require('p-retry').default;
+const { assetRepository, interviewRepository } = require('../repositories');
 const artifactService = require('./msGraph/artifactService');
 const s3UploadService = require('./s3UploadService');
 const assetService = require('./assetService'); // Actually we need assetRepository
 
 const logger = require('../config/logger');
-const { ASSET_STATUS } = require('../constants');
+const { ASSET_STATUS, S3_PATHS } = require('../constants');
 
 const processingService = {
   /**
@@ -31,6 +31,34 @@ const processingService = {
   async processArtifacts(callRecordId, mapping, organizerUserId = null, userCacheKey = null) {
     const { interviewId, candidateId, meetingId } = mapping;
     logger.info(`[ProcessingService] Starting artifact processing for interview: ${interviewId}`);
+    
+    let candidateName = null;
+    let interviewTitle = null;
+    try {
+      const interview = await interviewRepository.findById(interviewId);
+      if (interview) {
+        candidateName = interview.candidate_id?.name || interview.candidate?.name;
+        interviewTitle = interview.title || interview.round;
+      }
+    } catch(e) {
+      logger.warn(`[ProcessingService] Could not fetch interview details for S3 paths: ${e.message}`);
+    }
+
+    mapping.candidateName = candidateName;
+    mapping.interviewTitle = interviewTitle;
+
+    if (process.env.MOCK_GRAPH_ASSETS === 'true') {
+      logger.info(`[ProcessingService] MOCK_GRAPH_ASSETS=true | Creating mock assets in DB for interview: ${interviewId}`);
+      await assetRepository.upsertByInterviewId(interviewId, {
+        candidate_id: candidateId,
+        recording_s3_key: S3_PATHS.RECORDING(candidateId, interviewId, candidateName, interviewTitle).replace('.mp4', '_mock.mp4'),
+        recording_status: ASSET_STATUS.UPLOADED,
+        transcript_s3_key: S3_PATHS.TRANSCRIPT(candidateId, interviewId, candidateName, interviewTitle).replace('.vtt', '_mock.vtt'),
+        transcript_status: ASSET_STATUS.UPLOADED,
+      });
+      await assetRepository.appendLog(interviewId, ASSET_STATUS.UPLOADED, 'Mock assets successfully created.');
+      return;
+    }
 
     // Create or update the initial asset record to PROCESSING
     await assetRepository.upsertByInterviewId(interviewId, {
@@ -137,7 +165,7 @@ const processingService = {
       const stream = await artifactService.downloadRecordingStream(recordingId, meetingId, organizerUserId, userCacheKey);
 
       // 3. Upload to S3
-      const uploadResult = await s3UploadService.uploadRecording(stream, candidateId, interviewId);
+      const uploadResult = await s3UploadService.uploadRecording(stream, candidateId, interviewId, 'video/mp4', null, mapping.candidateName, mapping.interviewTitle);
 
       return { success: true, s3Key: uploadResult.s3Key, s3Url: uploadResult.s3Url };
 
@@ -180,7 +208,7 @@ const processingService = {
       const content = await artifactService.downloadTranscriptContent(transcriptId, meetingId, organizerUserId, userCacheKey);
 
       // 3. Upload to S3
-      const uploadResult = await s3UploadService.uploadTranscript(content, candidateId, interviewId);
+      const uploadResult = await s3UploadService.uploadTranscript(content, candidateId, interviewId, 'text/plain; charset=utf-8', null, mapping.candidateName, mapping.interviewTitle);
 
       return { success: true, s3Key: uploadResult.s3Key, s3Url: uploadResult.s3Url };
 

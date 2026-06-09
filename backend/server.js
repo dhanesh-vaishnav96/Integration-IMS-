@@ -20,6 +20,7 @@ const { startWorkers, stopWorkers } = require('./src/jobs/bullmq/schedulingWorke
 // Background jobs
 const sqsWorker              = require('./src/jobs/sqsWorker');
 const subscriptionRenewalJob = require('./src/jobs/subscriptionRenewalJob');
+const interviewCompletedScanJob = require('./src/jobs/interviewCompletedScanJob');
 
 // ─── Step 1: Validate Config ────────────────────────────────────────────────
 validateConfig();
@@ -89,6 +90,7 @@ validateTeamsOrganizer().then(() => {
     // Existing background jobs
     sqsWorker.start();
     subscriptionRenewalJob.start();
+    interviewCompletedScanJob.start();
   }
 });
 });
@@ -99,6 +101,7 @@ const shutdown = async (signal) => {
 
   sqsWorker.stop();
   subscriptionRenewalJob.stop();
+  interviewCompletedScanJob.stop();
   await stopWorkers();
   await disconnectRedis();
 

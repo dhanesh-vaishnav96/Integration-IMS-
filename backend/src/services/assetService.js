@@ -92,6 +92,22 @@ const assetService = {
     if (asset.transcript_s3_key && asset.transcript_status === 'UPLOADED') {
       asset.transcript_url = await s3UploadService.generatePresignedUrl(asset.transcript_s3_key);
     }
+  },
+
+  /**
+   * Fetch raw transcript content from S3 (bypassing CORS)
+   */
+  async getTranscriptContent(interviewId) {
+    if (process.env.MOCK_GRAPH_ASSETS === 'true') {
+      return "WEBVTT\n\n1\n00:00:01.000 --> 00:00:05.000\nMock transcript text for testing.";
+    }
+
+    const asset = await assetRepository.findByInterviewId(interviewId);
+    if (!asset || !asset.transcript_s3_key || asset.transcript_status !== 'UPLOADED') {
+      throw new AppError('Transcript not available', HTTP_STATUS.NOT_FOUND);
+    }
+    
+    return await s3UploadService.getFileContent(asset.transcript_s3_key);
   }
 };
 

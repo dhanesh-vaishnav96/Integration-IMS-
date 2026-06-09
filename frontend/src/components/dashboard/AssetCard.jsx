@@ -130,7 +130,8 @@ export const AssetCard = ({ interviewId }) => {
         />
         <TranscriptViewer 
           url={assets?.transcript_url} 
-          status={assets?.transcript_status} 
+          status={assets?.transcript_status}
+          interviewId={interviewId}
         />
       </div>
     </div>

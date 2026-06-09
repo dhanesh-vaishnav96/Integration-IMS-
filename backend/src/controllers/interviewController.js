@@ -64,6 +64,15 @@ const getInterviewAssets = asyncHandler(async (req, res) => {
   const asset = await assetService.getAssetByInterview(req.params.id);
   return sendSuccess(res, 'Interview assets fetched successfully.', asset);
 });
+/**
+ * GET /api/v1/interviews/:id/assets/transcript/content
+ * Fetch raw transcript text from S3 bypassing CORS.
+ */
+const getTranscriptContent = asyncHandler(async (req, res) => {
+  const content = await assetService.getTranscriptContent(req.params.id);
+  res.type('text/plain');
+  return res.status(200).send(content);
+});
 
 module.exports = {
   createInterview,
@@ -72,4 +81,5 @@ module.exports = {
   updateInterview,
   deleteInterview,
   getInterviewAssets,
+  getTranscriptContent,
 };

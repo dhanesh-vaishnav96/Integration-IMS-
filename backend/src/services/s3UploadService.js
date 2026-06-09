@@ -70,7 +70,7 @@ const s3UploadService = {
    *
    * Validates and uploads a meeting recording.
    */
-  async uploadRecording(recordingStream, candidateId, interviewId, mimeType = 'video/mp4', sizeBytes = null) {
+  async uploadRecording(recordingStream, candidateId, interviewId, mimeType = 'video/mp4', sizeBytes = null, candidateName = null, interviewTitle = null) {
     if (!VALID_VIDEO_MIMES.includes(mimeType)) {
       throw new AppError(`Invalid recording mime type: ${mimeType}`, HTTP_STATUS.BAD_REQUEST);
     }
@@ -79,7 +79,7 @@ const s3UploadService = {
       throw new AppError(`Recording exceeds max size of ${MAX_RECORDING_SIZE} bytes`, HTTP_STATUS.BAD_REQUEST);
     }
 
-    const s3Key = S3_PATHS.RECORDING(candidateId, interviewId);
+    const s3Key = S3_PATHS.RECORDING(candidateId, interviewId, candidateName, interviewTitle);
     return s3UploadService.uploadStream(recordingStream, s3Key, mimeType, {
       'candidate-id': candidateId,
       'interview-id': interviewId,
@@ -92,7 +92,7 @@ const s3UploadService = {
    *
    * Validates and uploads transcript text content.
    */
-  async uploadTranscript(transcriptContent, candidateId, interviewId, mimeType = 'text/plain; charset=utf-8', sizeBytes = null) {
+  async uploadTranscript(transcriptContent, candidateId, interviewId, mimeType = 'text/plain; charset=utf-8', sizeBytes = null, candidateName = null, interviewTitle = null) {
     const rawMime = mimeType.split(';')[0].trim();
     if (!VALID_TEXT_MIMES.includes(rawMime)) {
       throw new AppError(`Invalid transcript mime type: ${mimeType}`, HTTP_STATUS.BAD_REQUEST);
@@ -105,7 +105,7 @@ const s3UploadService = {
       throw new AppError(`Transcript exceeds max size of ${MAX_TRANSCRIPT_SIZE} bytes`, HTTP_STATUS.BAD_REQUEST);
     }
 
-    const s3Key = S3_PATHS.TRANSCRIPT(candidateId, interviewId);
+    const s3Key = S3_PATHS.TRANSCRIPT(candidateId, interviewId, candidateName, interviewTitle);
     return s3UploadService.uploadStream(buffer, s3Key, mimeType, {
       'candidate-id': candidateId,
       'interview-id': interviewId,
@@ -140,6 +140,23 @@ const s3UploadService = {
     } catch (err) {
       if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) return false;
       throw err;
+    }
+  },
+
+  /**
+   * getFileContent()
+   */
+  async getFileContent(s3Key) {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: config.aws.s3BucketName,
+        Key: s3Key,
+      });
+      const response = await getS3Client().send(command);
+      return await response.Body.transformToString();
+    } catch (err) {
+      logger.error(`[S3UploadService] Failed to get file content for ${s3Key}: ${err.message}`);
+      throw new AppError(`Failed to fetch transcript content: ${err.message}`, HTTP_STATUS.INTERNAL_SERVER);
     }
   },
 };
