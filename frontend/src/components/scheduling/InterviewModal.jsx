@@ -274,7 +274,7 @@ const InterviewModal = () => {
                 <div>
                   <label className="block text-[13px] font-semibold text-slate-700 mb-1.5">Duration (min)</label>
                   <input 
-                    type="number" min="15" max="240" step="1" required
+                    type="number" min="10" max="240" step="1" required
                     className="input-field"
                     value={formData.duration_minutes} onChange={e => setFormData({...formData, duration_minutes: parseInt(e.target.value)})}
                   />

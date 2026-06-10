@@ -215,7 +215,7 @@ const Dashboard = () => {
               </div>
               <div>
                 <label className="block text-[13px] font-semibold text-slate-700 mb-1.5">Duration (minutes)</label>
-                <input required type="number" step="15" className="input-field" value={formData.duration_minutes} onChange={e => setFormData({...formData, duration_minutes: e.target.value})} />
+                <input required type="number" min="10" step="5" className="input-field" value={formData.duration_minutes} onChange={e => setFormData({...formData, duration_minutes: e.target.value})} />
               </div>
               <div>
                 <label className="block text-[13px] font-semibold text-slate-700 mb-1.5">Additional Panelist Emails (comma separated)</label>

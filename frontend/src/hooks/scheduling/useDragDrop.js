@@ -103,7 +103,7 @@ const useDragDrop = (gridRef) => {
       const deltaMinutes = pixelToMinutes(deltaY, rect.height, 24);
       
       // Calculate new duration and snap it
-      const newDuration = Math.max(15, snapToInterval(startDuration + deltaMinutes, 15));
+      const newDuration = Math.max(10, snapToInterval(startDuration + deltaMinutes, 15));
       
       // Optimistic update for visual feedback
       updateEvent({ ...event, duration_minutes: newDuration });
@@ -115,7 +115,7 @@ const useDragDrop = (gridRef) => {
         const rect = grid.getBoundingClientRect();
         const deltaY = upEvent.clientY - originY;
         const deltaMinutes = pixelToMinutes(deltaY, rect.height, 24);
-        const finalDuration = Math.max(15, snapToInterval(startDuration + deltaMinutes, 15));
+        const finalDuration = Math.max(10, snapToInterval(startDuration + deltaMinutes, 15));
 
         try {
           const { data } = await schedulingApi.updateInterview(event.id || event._id, {

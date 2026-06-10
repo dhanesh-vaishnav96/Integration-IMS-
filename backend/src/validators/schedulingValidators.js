@@ -30,9 +30,9 @@ const createScheduledInterviewSchema = Joi.object({
     'date.greater': 'Scheduled time cannot be in the past',
     'date.format': 'Invalid timestamp format',
   }),
-  duration_minutes: Joi.number().integer().min(15).max(240).required().messages({
+  duration_minutes: Joi.number().integer().min(10).max(240).required().messages({
     'any.required': 'Duration is required',
-    'number.min': 'Duration must be at least 15 minutes',
+    'number.min': 'Duration must be at least 10 minutes',
     'number.max': 'Duration cannot exceed 240 minutes',
     'number.integer': 'Duration must be an integer',
   }),
@@ -59,7 +59,7 @@ const updateScheduledInterviewSchema = createScheduledInterviewSchema.keys({
   scheduled_time: Joi.date().iso().greater('now').optional().messages({
     'date.greater': 'Scheduled time cannot be in the past',
   }),
-  duration_minutes: Joi.number().integer().min(15).max(240).optional(),
+  duration_minutes: Joi.number().integer().min(10).max(240).optional(),
   organizer_email: Joi.string().email().lowercase().trim().optional(),
   participants: Joi.array().items(participantSchema).max(20).unique('email').optional(),
 });

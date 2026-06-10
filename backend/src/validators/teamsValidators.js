@@ -59,7 +59,7 @@ const updateScheduleSchema = Joi.object({
   scheduled_time: Joi.date().iso().optional().messages({
     'date.format': 'scheduled_time must be a valid ISO 8601 datetime (e.g., 2026-08-01T10:00:00Z)',
   }),
-  duration_minutes: Joi.number().integer().min(15).max(480).optional(),
+  duration_minutes: Joi.number().integer().min(10).max(480).optional(),
   organizer_user_id: Joi.string().trim().optional(),
   updated_by: Joi.string().email().optional(),
 }).min(1).messages({
