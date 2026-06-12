@@ -113,9 +113,18 @@ const candidateRepository = {
         orderBy,
         include: { 
           skills: { include: { skill: true } },
-          interviews: { 
-            include: { asset: true },
-            orderBy: { created_at: 'desc' }
+          interviews: {
+            take: 1,
+            orderBy: { created_at: 'desc' },
+            select: {
+              status: true,
+              asset: {
+                select: {
+                  recording_status: true,
+                  transcript_status: true
+                }
+              }
+            }
           }
         },
       }),
